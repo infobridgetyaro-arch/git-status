@@ -359,8 +359,6 @@ export function BreakPanel({ bs, localUpdate, update, goLive, cancelGoLive, stop
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [gradColor1, setGradColor1] = useState("#667eea");
-  const [gradColor2, setGradColor2] = useState("#f093fb");
 
   const countdown = countdowns["break"];
   const isActive = bs.breakActive;
@@ -418,7 +416,7 @@ export function BreakPanel({ bs, localUpdate, update, goLive, cancelGoLive, stop
       case "Glass":   return <GlassBreak   text={bs.breakText} active={isActive} />;
       case "Neon":    return <NeonBreak    text={bs.breakText} active={isActive} />;
       case "Minimal": return <MinimalBreak text={bs.breakText} active={isActive} />;
-      case "Gradient": return <GradientBreak text={bs.breakText} active={isActive} color1={gradColor1} color2={gradColor2} />;
+      case "Gradient": return <GradientBreak text={bs.breakText} active={isActive} color1={bs.bgGradient1} color2={bs.bgGradient2} />;
       default:        return <CountdownBreak text={bs.breakText} active={isActive} duration={300} />;
     }
   };
@@ -452,21 +450,21 @@ export function BreakPanel({ bs, localUpdate, update, goLive, cancelGoLive, stop
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em" }}>Color 1</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="color" value={gradColor1} onChange={(e) => setGradColor1(e.target.value)}
+              <input type="color" value={bs.bgGradient1} onChange={(e) => (bs.breakActive ? update : localUpdate)({ bgGradient1: e.target.value })}
                 style={{ width: 36, height: 30, borderRadius: 6, border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", padding: 2 }} />
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>{gradColor1}</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>{bs.bgGradient1}</span>
             </div>
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em" }}>Color 2</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="color" value={gradColor2} onChange={(e) => setGradColor2(e.target.value)}
+              <input type="color" value={bs.bgGradient2} onChange={(e) => (bs.breakActive ? update : localUpdate)({ bgGradient2: e.target.value })}
                 style={{ width: 36, height: 30, borderRadius: 6, border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", padding: 2 }} />
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>{gradColor2}</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>{bs.bgGradient2}</span>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}>
-            <div style={{ width: 48, height: 28, borderRadius: 6, background: `linear-gradient(135deg, ${gradColor1}, ${gradColor2})` }} />
+            <div style={{ width: 48, height: 28, borderRadius: 6, background: `linear-gradient(135deg, ${bs.bgGradient1}, ${bs.bgGradient2})` }} />
           </div>
         </div>
       )}
