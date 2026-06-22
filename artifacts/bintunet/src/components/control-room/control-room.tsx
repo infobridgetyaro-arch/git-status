@@ -2259,7 +2259,7 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                       <input
                         type="color"
                         value={(bs as any)[field]}
-                        onChange={(e) => localUpdate({ [field]: e.target.value } as any)}
+                        onChange={(e) => (bs.bgGradientActive ? update : localUpdate)({ [field]: e.target.value } as any)}
                         style={{ width: 36, height: 32, borderRadius: 6, border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", padding: 2 }}
                       />
                       <span style={{ fontSize: 11, fontFamily: "monospace", color: "rgba(255,255,255,0.5)" }}>
@@ -2280,7 +2280,7 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                     type="range"
                     min={0.1} max={1} step={0.05}
                     value={bs.bgGradientOpacity}
-                    onChange={(e) => localUpdate({ bgGradientOpacity: Number(e.target.value) })}
+                    onChange={(e) => (bs.bgGradientActive ? update : localUpdate)({ bgGradientOpacity: Number(e.target.value) })}
                     style={{ flex: 1, accentColor: "#fb7185", cursor: "pointer" }}
                   />
                   <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", width: 36, textAlign: "right" }}>

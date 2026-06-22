@@ -39,6 +39,15 @@ interface BroadcastState {
   subsPosition: OverlayPosition;
   mobileSubsPosition: OverlayPosition;
   subsGoal: number;
+  qrActive: boolean;
+  qrUrl: string;
+  qrTitle: string;
+  qrSize: number;
+  qrPosition: OverlayPosition;
+  qrScanCount: number;
+  qrThankYouActive: boolean;
+  qrThankYouName: string;
+  qrThankYouTs: number;
 }
 
 interface ChatMessage {
@@ -74,7 +83,11 @@ function useBroadcastWS() {
   const [state, setState] = useState<BroadcastState | null>(null);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [stats, setStats] = useState<StreamStats>({ subs: null, viewers: null });
+  const [scanFlash, setScanFlash] = useState<number | null>(null);
+  const [giftPopup, setGiftPopup] = useState<{ name: string; ts: number } | null>(null);
   const seenIds = useRef<Set<string>>(new Set());
+  const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const giftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -105,6 +118,19 @@ function useBroadcastWS() {
           seenIds.current = new Set();
           setStats({ subs: null, viewers: null });
         }
+        if (msg.type === "paystack_scan") {
+          const ts = Date.now();
+          if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+          setScanFlash(ts);
+          scanTimerRef.current = setTimeout(() => setScanFlash(null), 4000);
+        }
+        if (msg.type === "paystack_paid") {
+          const payerName = (msg.data?.payerName as string) || "Anonymous";
+          const ts = Date.now();
+          if (giftTimerRef.current) clearTimeout(giftTimerRef.current);
+          setGiftPopup({ name: payerName, ts });
+          giftTimerRef.current = setTimeout(() => setGiftPopup(null), 6000);
+        }
       } catch {}
     };
 
@@ -116,10 +142,14 @@ function useBroadcastWS() {
     // Fetch initial broadcast state
     fetch("/api/broadcast").then((r) => r.json()).then((d) => setState(d)).catch(() => {});
     connect();
-    return () => wsRef.current?.close();
+    return () => {
+      wsRef.current?.close();
+      if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+      if (giftTimerRef.current) clearTimeout(giftTimerRef.current);
+    };
   }, [connect]);
 
-  return { state, chat, stats };
+  return { state, chat, stats, scanFlash, giftPopup };
 }
 
 /* ─── Helper components ─── */
@@ -1200,6 +1230,192 @@ function SubsDisplay({ subs, subsStyle, pos, isMobile }: {
   );
 }
 
+/* ─── Paystack QR overlay ─── */
+
+function QRPaystackOverlay({ url, title, size = 200, position }: {
+  url: string; title: string; size?: number; position?: OverlayPosition;
+}) {
+  const px = position?.x ?? 50;
+  const py = position?.y ?? 50;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=${size * 2}x${size * 2}&data=${encodeURIComponent(url)}&margin=1&color=000000&bgcolor=ffffff&ecc=M`;
+  return (
+    <div style={{
+      position: "fixed",
+      left: `${px}%`, top: `${py}%`,
+      transform: "translate(-50%, -50%)",
+      zIndex: 45,
+      pointerEvents: "none",
+      animation: "qr-drop 0.5s cubic-bezier(0.34,1.56,0.64,1)",
+    }}>
+      <div style={{
+        background: "#fff",
+        borderRadius: 16,
+        padding: 14,
+        boxShadow: "0 8px 48px rgba(0,0,0,0.7), 0 0 0 3px rgba(0,200,100,0.5)",
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+        minWidth: size + 28,
+      }}>
+        <img
+          src={qrSrc}
+          width={size}
+          height={size}
+          alt="Scan to pay"
+          style={{ display: "block", borderRadius: 4 }}
+          draggable={false}
+        />
+        {title && (
+          <div style={{
+            color: "#111", fontSize: 13, fontWeight: 800, textAlign: "center",
+            maxWidth: size, lineHeight: 1.3, letterSpacing: "0.02em",
+          }}>
+            {title}
+          </div>
+        )}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "4px 10px", borderRadius: 20,
+          background: "rgba(0,180,80,0.12)", border: "1px solid rgba(0,180,80,0.4)",
+        }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#00c851", boxShadow: "0 0 6px #00c851", animation: "qr-pulse 1.4s ease-in-out infinite" }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#00c851" }}>Paystack · Scan to Pay</span>
+        </div>
+      </div>
+      <style>{`
+        @keyframes qr-drop { from{opacity:0;transform:translate(-50%,-60%) scale(0.88);} to{opacity:1;transform:translate(-50%,-50%) scale(1);} }
+        @keyframes qr-pulse { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+      `}</style>
+    </div>
+  );
+}
+
+/* ─── Scan-detected flash overlay (4 s) ─── */
+
+function ScanFlashOverlay() {
+  const [phase, setPhase] = useState<"in" | "hold" | "out">("in");
+  useEffect(() => {
+    const t1 = setTimeout(() => setPhase("hold"), 300);
+    const t2 = setTimeout(() => setPhase("out"), 3400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 90,
+      background: "rgba(0,220,100,0.12)",
+      backdropFilter: "blur(2px)",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      opacity: phase === "out" ? 0 : 1,
+      transition: phase === "out" ? "opacity 0.5s ease" : "opacity 0.25s ease",
+      pointerEvents: "none",
+    }}>
+      <div style={{
+        textAlign: "center",
+        opacity: phase === "in" ? 0 : 1,
+        transform: phase === "in" ? "scale(0.8) translateY(20px)" : "scale(1) translateY(0)",
+        transition: "opacity 0.3s ease, transform 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+      }}>
+        <div style={{ fontSize: 88, lineHeight: 1, animation: "sf-bob 0.8s ease-in-out infinite alternate" }}>📲</div>
+        <div style={{
+          marginTop: 20, fontSize: 32, fontWeight: 900, color: "#fff",
+          textShadow: "0 0 24px rgba(0,255,110,0.9), 0 2px 8px rgba(0,0,0,0.7)",
+          letterSpacing: "-0.01em",
+        }}>
+          Someone is Scanning…
+        </div>
+        <div style={{
+          marginTop: 10, fontSize: 15, color: "rgba(255,255,255,0.75)",
+          fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase",
+        }}>
+          Paystack QR — payment in progress
+        </div>
+        {/* Animated scan bar */}
+        <div style={{ marginTop: 24, width: 200, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)", overflow: "hidden", margin: "20px auto 0" }}>
+          <div style={{ height: "100%", background: "linear-gradient(90deg, #00e676, #69ff47)", borderRadius: 2, animation: "sf-scan 1.2s ease-in-out infinite" }} />
+        </div>
+      </div>
+      <style>{`
+        @keyframes sf-bob { from{transform:translateY(-4px);} to{transform:translateY(4px);} }
+        @keyframes sf-scan { 0%{width:0;margin-left:0;} 50%{width:100%;margin-left:0;} 100%{width:0;margin-left:100%;} }
+      `}</style>
+    </div>
+  );
+}
+
+/* ─── Payment received gift popup (6 s) ─── */
+
+function GiftPopupOverlay({ name }: { name: string }) {
+  const [phase, setPhase] = useState<"in" | "hold" | "out">("in");
+  useEffect(() => {
+    const t1 = setTimeout(() => setPhase("hold"), 400);
+    const t2 = setTimeout(() => setPhase("out"), 5400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 95,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      pointerEvents: "none",
+      opacity: phase === "out" ? 0 : 1,
+      transition: phase === "out" ? "opacity 0.6s ease" : "opacity 0.3s ease",
+    }}>
+      {/* Confetti-like dots */}
+      {[...Array(12)].map((_, i) => (
+        <div key={i} style={{
+          position: "absolute",
+          width: 10, height: 10, borderRadius: "50%",
+          background: ["#ffd700","#ff6b6b","#00e676","#69b4ff","#ff69b4","#c7b2ff"][i % 6],
+          top: `${20 + (i * 37) % 60}%`,
+          left: `${10 + (i * 53) % 80}%`,
+          opacity: phase === "in" ? 0 : 0.85,
+          transform: phase === "in" ? "scale(0)" : "scale(1)",
+          transition: `opacity 0.4s ease ${i * 0.05}s, transform 0.5s cubic-bezier(0.34,1.56,0.64,1) ${i * 0.05}s`,
+        }} />
+      ))}
+      <div style={{
+        background: "linear-gradient(145deg, #0d1117 0%, #1a1f2e 100%)",
+        border: "2px solid rgba(255,215,0,0.5)",
+        borderRadius: 24,
+        padding: "32px 48px",
+        textAlign: "center",
+        boxShadow: "0 0 80px rgba(255,215,0,0.25), 0 24px 64px rgba(0,0,0,0.8)",
+        opacity: phase === "in" ? 0 : 1,
+        transform: phase === "in" ? "scale(0.7) translateY(40px)" : "scale(1) translateY(0)",
+        transition: "opacity 0.4s ease, transform 0.5s cubic-bezier(0.34,1.56,0.64,1)",
+        minWidth: 280,
+      }}>
+        <div style={{ fontSize: 72, lineHeight: 1, animation: phase !== "out" ? "gift-bounce 0.9s ease-in-out infinite alternate" : "none" }}>🎁</div>
+        <div style={{
+          marginTop: 16, fontSize: 15, fontWeight: 700, color: "rgba(255,215,0,0.85)",
+          textTransform: "uppercase", letterSpacing: "0.14em",
+        }}>
+          Payment Received!
+        </div>
+        <div style={{
+          marginTop: 6, fontSize: 30, fontWeight: 900, color: "#fff",
+          textShadow: "0 0 20px rgba(255,215,0,0.5)",
+          letterSpacing: "-0.01em",
+        }}>
+          {name}
+        </div>
+        <div style={{ marginTop: 8, fontSize: 13, color: "rgba(255,255,255,0.5)", fontWeight: 500 }}>
+          Thank you for your support! 🙏
+        </div>
+        {/* Paystack badge */}
+        <div style={{
+          marginTop: 16, display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "5px 14px", borderRadius: 20,
+          background: "rgba(0,200,100,0.1)", border: "1px solid rgba(0,200,100,0.35)",
+        }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#00c851" }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#00c851" }}>via Paystack</span>
+        </div>
+      </div>
+      <style>{`
+        @keyframes gift-bounce { from{transform:translateY(-5px) rotate(-4deg);} to{transform:translateY(5px) rotate(4deg);} }
+      `}</style>
+    </div>
+  );
+}
+
 /* ─── Stage idle screen ─── */
 
 function StageIdle({ connected }: { connected: boolean }) {
@@ -1264,7 +1480,7 @@ function StageIdle({ connected }: { connected: boolean }) {
 /* ─── Main broadcast page ─── */
 
 export default function BroadcastPage() {
-  const { state, chat, stats } = useBroadcastWS();
+  const { state, chat, stats, scanFlash, giftPopup } = useBroadcastWS();
   const isMobile = useIsMobile();
   const [connected, setConnected] = useState(false);
 
@@ -1273,7 +1489,7 @@ export default function BroadcastPage() {
     if (state !== null) setConnected(true);
   }, [state]);
 
-  const hasOverlay = state?.newsActive || state?.adActive || state?.breakActive;
+  const hasOverlay = state?.newsActive || state?.adActive || state?.breakActive || state?.bgGradientActive || state?.qrActive;
 
   // Transparent bg so it can be used as OBS browser source over a video
   return (
@@ -1465,6 +1681,22 @@ export default function BroadcastPage() {
           </div>
         );
       })()}
+
+      {/* Paystack QR code overlay */}
+      {state?.qrActive && state.qrUrl && !state.breakActive && !scanFlash && !giftPopup && (
+        <QRPaystackOverlay
+          url={state.qrUrl}
+          title={state.qrTitle ?? ""}
+          size={state.qrSize ?? 200}
+          position={state.qrPosition}
+        />
+      )}
+
+      {/* Paystack scan-detected animation (4 s) */}
+      {scanFlash !== null && <ScanFlashOverlay key={scanFlash} />}
+
+      {/* Paystack payment-received gift popup (6 s) */}
+      {giftPopup && <GiftPopupOverlay key={giftPopup.ts} name={giftPopup.name} />}
 
       {/* Watermark */}
       <div style={{
