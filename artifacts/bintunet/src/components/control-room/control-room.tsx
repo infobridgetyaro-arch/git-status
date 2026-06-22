@@ -827,63 +827,24 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
   const qrPosDebRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenDebRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Paystack QR payment state ────────────────────────────────────────────
-  const [payTitle, setPayTitle] = useState("Support the stream");
-  const [payAmount, setPayAmount] = useState("");
-  const [payStreamId, setPayStreamId] = useState("");
-  const [payStatus, setPayStatus] = useState<"idle" | "generating" | "active" | "scanned" | "paid">("idle");
-  const [payScanUrl, setPayScanUrl] = useState("");
-  const [payCheckoutUrl, setPayCheckoutUrl] = useState("");
-  const [payerName, setPayerName] = useState<string | null>(null);
-  const payPollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [qrLocked, setQrLocked] = useState(false);
+  // ── SuperChat QR overlay state ───────────────────────────────────────────
+  const [qrLocked,         setQrLocked]         = useState(false);
+  const [qrGatewayUrl,     setQrGatewayUrl]     = useState("");
+  const [qrGatewayLoading, setQrGatewayLoading] = useState(false);
 
-  const generatePaymentQr = useCallback(async () => {
-    if (!payAmount || !payStreamId) return;
-    setPayStatus("generating");
+  const fetchQrGatewayUrl = useCallback(async () => {
+    setQrGatewayLoading(true);
     try {
-      const r = await fetch("/api/paystack/init", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: payTitle, amount: parseFloat(payAmount), streamId: payStreamId }),
-      });
-      const d = await r.json() as { scanUrl?: string; checkoutUrl?: string; error?: string };
-      if (!r.ok || !d.checkoutUrl) {
-        console.error("Paystack init failed:", d.error);
-        setPayStatus("idle");
-        return;
+      const r = await fetch("/api/gateway/url", { credentials: "include" });
+      if (r.ok) {
+        const d = await r.json() as { gatewayUrl?: string };
+        if (d.gatewayUrl) setQrGatewayUrl(d.gatewayUrl);
       }
-      setPayCheckoutUrl(d.checkoutUrl);
-      // scanUrl routes through our server to trigger scan animation before redirecting to Paystack
-      const effectiveScanUrl = d.scanUrl ?? d.checkoutUrl;
-      setPayScanUrl(effectiveScanUrl);
-      setPayStatus("active");
-      // Push the scanUrl to broadcast state so viewers see the QR that fires scan events
-      setBs(prev => ({ ...prev, qrActive: true, qrUrl: effectiveScanUrl, qrTitle: payTitle }));
-      void pushBroadcast({ qrActive: true, qrUrl: effectiveScanUrl, qrTitle: payTitle, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
-      // Poll every 3s
-      if (payPollRef.current) clearInterval(payPollRef.current);
-      payPollRef.current = setInterval(async () => {
-        const pr = await fetch(`/api/paystack/status?streamId=${encodeURIComponent(payStreamId)}`, { credentials: "include" });
-        const pd = await pr.json() as { status: string; payerName?: string };
-        if (pd.status === "scanned" || pd.status === "paid") {
-          setPayStatus(pd.status as "scanned" | "paid");
-          if (pd.payerName) setPayerName(pd.payerName);
-          if (pd.status === "paid" && payPollRef.current) { clearInterval(payPollRef.current); payPollRef.current = null; }
-        }
-      }, 3000);
-    } catch { setPayStatus("idle"); }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payTitle, payAmount, payStreamId, bs.qrSize, bs.qrPosition]);
+    } catch {}
+    setQrGatewayLoading(false);
+  }, []);
 
-  const resetPayment = useCallback(async () => {
-    if (payPollRef.current) { clearInterval(payPollRef.current); payPollRef.current = null; }
-    if (payStreamId) await fetch(`/api/paystack/reset?streamId=${encodeURIComponent(payStreamId)}`, { method: "DELETE", credentials: "include" });
-    setBs(prev => ({ ...prev, qrActive: false, qrUrl: "" }));
-    void pushBroadcast({ qrActive: false, qrUrl: "" });
-    setPayStatus("idle"); setPayScanUrl(""); setPayCheckoutUrl(""); setPayerName(null);
-  }, [payStreamId]);
+  useEffect(() => { void fetchQrGatewayUrl(); }, [fetchQrGatewayUrl]);
 
   // ── Screen Share WebSocket ───────────────────────────────────────────────
   const [screenActive, setScreenActive] = useState(false);
@@ -2363,21 +2324,40 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
             </div>
           )}
 
-          {/* ── QR / Payment tab ─────────────────────────────────────────── */}
-          {activeTab === "qr" && (
+          {/* ── QR / SuperChat Overlay tab ───────────────────────────────── */}
+          {activeTab === "qr" && (() => {
+            const qrPreviewSrc = qrGatewayUrl
+              ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(qrGatewayUrl)}&margin=1&color=1a1a1a&bgcolor=ffffff&ecc=M`
+              : "";
+            const toggleOnStream = () => {
+              if (!qrGatewayUrl) return;
+              if (bs.qrActive) {
+                localUpdate({ qrActive: false });
+                update({ qrActive: false });
+              } else {
+                localUpdate({ qrActive: true, qrUrl: qrGatewayUrl });
+                update({ qrActive: true, qrUrl: qrGatewayUrl, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
+              }
+            };
+            return (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-              {/* Super Chat branding header */}
+              {/* Header */}
               <div style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 12,
-                background: "linear-gradient(135deg, rgba(255,214,0,0.15) 0%, rgba(255,170,0,0.10) 100%)",
-                border: "1px solid rgba(255,214,0,0.35)",
+                display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 12,
+                background: "linear-gradient(135deg, rgba(255,214,0,0.14) 0%, rgba(255,170,0,0.08) 100%)",
+                border: "1px solid rgba(255,214,0,0.3)",
               }}>
-                <span style={{ fontSize: 22, flexShrink: 0 }}>💛</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: "#ffd600", letterSpacing: "0.04em" }}>SUPER CHAT via Paystack</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)" }}>Viewers scan QR → pay → you see their name live on stream</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>💛</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: "#ffd600", letterSpacing: "0.03em" }}>SuperChat QR Overlay</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Viewer scans → pays → gift plays on stream</div>
+                  </div>
                 </div>
+                <button onClick={() => void fetchQrGatewayUrl()} title="Refresh URL" style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", padding: 4 }}>
+                  <RefreshCw size={12} style={{ animation: qrGatewayLoading ? "cr-spin 1s linear infinite" : "none" }} />
+                </button>
               </div>
 
               {/* Broadcast overlay info box */}
@@ -2385,302 +2365,227 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                 📺 <strong style={{ color: "rgba(255,255,255,0.75)" }}>Viewers see the QR via your broadcast overlay.</strong> In OBS, add a Browser Source pointing to your <code style={{ color: "#a5b4fc" }}>/broadcast</code> URL — the Super Chat card appears automatically when you activate it.
               </div>
 
-              {payStatus === "idle" || payStatus === "generating" ? (
-                <>
-                  {/* Stream picker */}
-                  <div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Select Stream</div>
-                    <select
-                      value={payStreamId}
-                      onChange={(e) => setPayStreamId(e.target.value)}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none", cursor: "pointer" }}
-                    >
-                      <option value="" style={{ background: "#1a1a2e" }}>— pick a stream —</option>
-                      {streams.map((s) => (
-                        <option key={s.id} value={s.id} style={{ background: "#1a1a2e" }}>
-                          {s.sourceType === "tiktok" ? `@${s.tiktokUsername}` : s.sourceType === "youtube" ? (s.youtubeSourceUrl || "YouTube") : (s.cameraDevice || "Camera")} ({s.id.slice(0, 6)})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Super Chat message */}
-                  <div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Super Chat Message</div>
-                    <input
-                      type="text"
-                      value={payTitle}
-                      onChange={(e) => setPayTitle(e.target.value)}
-                      placeholder="Support the stream"
-                      style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
+              {/* QR preview */}
+              {qrGatewayLoading && (
+                <div style={{ display: "flex", justifyContent: "center", padding: "24px 0" }}>
+                  <RefreshCw size={22} style={{ animation: "cr-spin 1s linear infinite", color: "#ffd600" }} />
+                </div>
+              )}
+              {!qrGatewayLoading && !qrGatewayUrl && (
+                <div style={{ padding: "16px", borderRadius: 10, background: "rgba(255,80,80,0.07)", border: "1px solid rgba(255,80,80,0.2)", textAlign: "center", fontSize: 11, color: "rgba(255,120,120,0.8)" }}>
+                  ⚠ Gateway URL not configured — check <code style={{ color: "#fca5a5" }}>/api/gateway/url</code>
+                </div>
+              )}
+              {!qrGatewayLoading && qrGatewayUrl && (
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  {/* QR thumbnail */}
+                  <div style={{ padding: 8, borderRadius: 10, background: "#fff", boxShadow: "0 0 0 3px #ffd600, 0 4px 16px rgba(0,0,0,0.5)", flexShrink: 0 }}>
+                    <img
+                      src={qrPreviewSrc}
+                      alt="SuperChat QR"
+                      style={{ width: 96, height: 96, display: "block" }}
                     />
                   </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#ffd600", textTransform: "uppercase", letterSpacing: "0.08em" }}>💛 Super Chat QR</div>
+                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", wordBreak: "break-all", lineHeight: 1.4 }}>{qrGatewayUrl}</div>
 
-                  {/* Amount */}
-                  <div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Amount (₦)</div>
-                    <div style={{ position: "relative" }}>
-                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,214,0,0.7)", fontSize: 13, fontWeight: 900 }}>₦</span>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={payAmount}
-                        onChange={(e) => setPayAmount(e.target.value)}
-                        placeholder="500"
-                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px 9px 28px", borderRadius: 8, fontSize: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
-                      />
+                    {/* Scan + thank-you badges */}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+                      {bs.qrScanCount > 0 && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 99, background: "rgba(6,182,212,0.15)", border: "1px solid rgba(6,182,212,0.35)", fontSize: 10, fontWeight: 700, color: "#67e8f9" }}>
+                          👁 {bs.qrScanCount} scan{bs.qrScanCount !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {bs.qrThankYouName && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 99, background: "rgba(255,214,0,0.15)", border: "1px solid rgba(255,214,0,0.35)", fontSize: 10, fontWeight: 700, color: "#ffd600" }}>
+                          🎉 {bs.qrThankYouName}
+                        </span>
+                      )}
                     </div>
                   </div>
-
-                  <button
-                    onClick={generatePaymentQr}
-                    disabled={!payAmount || !payStreamId || payStatus === "generating"}
-                    style={{
-                      padding: "12px 20px", borderRadius: 10, fontSize: 13, fontWeight: 900,
-                      cursor: (!payAmount || !payStreamId) ? "not-allowed" : "pointer",
-                      border: `1px solid ${(!payAmount || !payStreamId) ? "rgba(255,255,255,0.08)" : "rgba(255,214,0,0.5)"}`,
-                      background: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.04)" : "linear-gradient(135deg, rgba(255,214,0,0.22) 0%, rgba(255,170,0,0.16) 100%)",
-                      color: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.25)" : "#ffd600",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                      opacity: payStatus === "generating" ? 0.6 : 1,
-                      transition: "all 0.2s",
-                      letterSpacing: "0.03em",
-                    }}
-                  >
-                    {payStatus === "generating" ? (
-                      <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Generating…</>
-                    ) : (
-                      <>💛 Generate Super Chat QR</>
-                    )}
-                  </button>
-                </>
-              ) : (
-                /* ── Active Super Chat session ── */
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-
-                  {/* Status pill */}
-                  <div style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                    padding: "10px 14px", borderRadius: 10,
-                    background: payStatus === "paid" ? "rgba(52,211,153,0.12)" : payStatus === "scanned" ? "rgba(255,214,0,0.12)" : "rgba(255,214,0,0.06)",
-                    border: `1px solid ${payStatus === "paid" ? "rgba(52,211,153,0.35)" : payStatus === "scanned" ? "rgba(255,214,0,0.5)" : "rgba(255,214,0,0.2)"}`,
-                  }}>
-                    <div style={{
-                      width: 8, height: 8, borderRadius: "50%",
-                      background: payStatus === "paid" ? "#34d399" : "#ffd600",
-                      animation: payStatus === "paid" ? "none" : "cr-pulse 1.2s infinite",
-                    }} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: payStatus === "paid" ? "#34d399" : payStatus === "scanned" ? "#ffd600" : "#ffd600" }}>
-                      {payStatus === "paid"
-                        ? `🎉 Super Chat received — ${payerName ?? "Someone"}`
-                        : payStatus === "scanned"
-                        ? "⚡ Someone is scanning… awaiting payment"
-                        : "💛 Waiting for a Super Chat scan…"}
-                    </span>
-                  </div>
-
-                  {/* QR code */}
-                  {payStatus !== "paid" && payCheckoutUrl && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "16px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#ffd600", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                        {payStatus === "scanned" ? "⚡ Being scanned now!" : "💛 SUPER CHAT QR"}
-                      </div>
-                      <div style={{
-                        padding: 10, borderRadius: 12, background: "#fff",
-                        boxShadow: payStatus === "scanned" ? "0 0 32px rgba(255,214,0,0.6)" : "0 0 0 4px #ffd600, 0 4px 20px rgba(0,0,0,0.4)",
-                        transition: "box-shadow 0.3s ease",
-                      }}>
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(payCheckoutUrl)}&color=1a1a1a&bgcolor=ffffff&margin=2`}
-                          alt="Super Chat QR"
-                          style={{ width: 150, height: 150, display: "block" }}
-                        />
-                      </div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
-                        <strong style={{ color: "#ffd600" }}>{payTitle}</strong> — <span style={{ color: "#ffaa00" }}>₦{payAmount}</span>
-                      </div>
-                      <a href={payCheckoutUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#ffd600", textDecoration: "underline", opacity: 0.7 }}>
-                        Open payment page ↗
-                      </a>
-
-                      {/* Show / Hide on stream toggle */}
-                      <button
-                        onClick={() => {
-                          if (bs.qrActive) {
-                            update({ qrActive: false });
-                          } else {
-                            update({ qrActive: true, qrUrl: payScanUrl || payCheckoutUrl, qrTitle: payTitle, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
-                          }
-                        }}
-                        style={{
-                          width: "100%", padding: "10px", borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: "pointer",
-                          border: `1px solid ${bs.qrActive ? "#ffd600" : "rgba(255,255,255,0.15)"}`,
-                          background: bs.qrActive ? "linear-gradient(135deg, rgba(255,214,0,0.22), rgba(255,170,0,0.16))" : "rgba(255,255,255,0.05)",
-                          color: bs.qrActive ? "#ffd600" : "rgba(255,255,255,0.55)",
-                          transition: "all 0.2s",
-                          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                        }}
-                      >
-                        {bs.qrActive ? "📺 Showing on Stream — tap to Hide" : "📺 Show Super Chat on Stream"}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Thank-you card */}
-                  {payStatus === "paid" && payerName && (
-                    <div style={{ padding: "16px", borderRadius: 12, background: "linear-gradient(135deg, rgba(255,214,0,0.12), rgba(255,170,0,0.08))", border: "1px solid rgba(255,214,0,0.35)", textAlign: "center" }}>
-                      <div style={{ fontSize: 32, marginBottom: 8 }}>💛</div>
-                      <div style={{ fontSize: 15, fontWeight: 900, color: "#ffd600", letterSpacing: "0.04em" }}>SUPER CHAT RECEIVED!</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginTop: 4 }}>{payerName}</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>confirmed via Paystack · ₦{payAmount}</div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={resetPayment}
-                    style={{ padding: "8px", borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(255,80,80,0.25)", background: "rgba(255,80,80,0.07)", color: "rgba(255,120,120,0.8)" }}
-                  >
-                    Reset / New payment
-                  </button>
-
-                  {payStatus !== "paid" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {/* Corner presets */}
-                      <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Quick Position</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
-                          {[
-                            { label: "↖ Top-Left",    pos: { x: 2, y: 4 } },
-                            { label: "↗ Top-Right",   pos: { x: 88, y: 4 } },
-                            { label: "↙ Bottom-Left", pos: { x: 2, y: 82 } },
-                            { label: "↘ Bottom-Right",pos: { x: 88, y: 82 } },
-                          ].map(preset => {
-                            const isActive = Math.abs(bs.qrPosition.x - preset.pos.x) < 3 && Math.abs(bs.qrPosition.y - preset.pos.y) < 3;
-                            return (
-                              <button
-                                key={preset.label}
-                                onClick={() => {
-                                  if (qrLocked) return;
-                                  localUpdate({ qrPosition: preset.pos });
-                                  if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
-                                  qrPosDebRef.current = setTimeout(() => update({ qrSize: bs.qrSize, qrPosition: preset.pos }), 300);
-                                }}
-                                style={{
-                                  padding: "6px 8px", borderRadius: 8, fontSize: 10, fontWeight: 700,
-                                  cursor: qrLocked ? "not-allowed" : "pointer",
-                                  border: `1px solid ${isActive ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
-                                  background: isActive ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
-                                  color: isActive ? "#67e8f9" : "rgba(255,255,255,0.4)",
-                                  transition: "all 0.18s ease",
-                                  opacity: qrLocked ? 0.45 : 1,
-                                }}
-                              >{preset.label}</button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Fine-tune sliders */}
-                      <div style={{ opacity: qrLocked ? 0.4 : 1, pointerEvents: qrLocked ? "none" : "auto", transition: "opacity 0.2s" }}>
-                        <PositionSliders
-                          pos={bs.qrPosition}
-                          onChange={(p) => {
-                            localUpdate({ qrPosition: p });
-                            if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
-                            qrPosDebRef.current = setTimeout(() => update({ qrSize: bs.qrSize, qrPosition: p }), 600);
-                          }}
-                          label="Fine-tune Position"
-                          accent="#06b6d4"
-                        />
-                      </div>
-
-                      {/* Lock toggle */}
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>🔒 Lock Position</div>
-                          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 1 }}>Prevent accidental moves</div>
-                        </div>
-                        <div onClick={() => setQrLocked(l => !l)} style={{ width: 36, height: 20, borderRadius: 999, cursor: "pointer", position: "relative", flexShrink: 0, background: qrLocked ? "#06b6d4" : "rgba(255,255,255,0.12)", transition: "background 0.2s" }}>
-                          <div style={{ position: "absolute", top: 2, left: qrLocked ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
-                        </div>
-                      </div>
-
-                      {/* Glow intensity */}
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em" }}>✨ Glow Intensity</div>
-                          <span style={{ fontSize: 10, color: "#67e8f9", fontVariantNumeric: "tabular-nums" }}>{bs.qrGlowIntensity}%</span>
-                        </div>
-                        <input
-                          type="range" min={0} max={100} step={5}
-                          value={bs.qrGlowIntensity}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            localUpdate({ qrGlowIntensity: v });
-                            if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
-                            qrPosDebRef.current = setTimeout(() => update({ qrGlowIntensity: v }), 400);
-                          }}
-                          style={{ width: "100%", accentColor: "#06b6d4", cursor: "pointer" }}
-                        />
-                      </div>
-
-                      {/* Border style */}
-                      <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Border Style</div>
-                        <div style={{ display: "flex", gap: 5 }}>
-                          {["glow", "solid", "dashed", "none"].map(bs2 => (
-                            <button
-                              key={bs2}
-                              onClick={() => { localUpdate({ qrBorderStyle: bs2 }); update({ qrBorderStyle: bs2 }); }}
-                              style={{
-                                flex: 1, padding: "5px 4px", borderRadius: 7, fontSize: 10, fontWeight: 700,
-                                cursor: "pointer",
-                                border: `1px solid ${bs.qrBorderStyle === bs2 ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
-                                background: bs.qrBorderStyle === bs2 ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
-                                color: bs.qrBorderStyle === bs2 ? "#67e8f9" : "rgba(255,255,255,0.4)",
-                                transition: "all 0.18s ease",
-                                textTransform: "capitalize",
-                              }}
-                            >{bs2}</button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Animation style */}
-                      <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>QR Animation</div>
-                        <div style={{ display: "flex", gap: 5 }}>
-                          {[
-                            { id: "pulse",  label: "💓 Pulse"  },
-                            { id: "float",  label: "🌊 Float"  },
-                            { id: "none",   label: "⏸ Static" },
-                          ].map(anim => (
-                            <button
-                              key={anim.id}
-                              onClick={() => { localUpdate({ qrAnimation: anim.id }); update({ qrAnimation: anim.id }); }}
-                              style={{
-                                flex: 1, padding: "5px 4px", borderRadius: 7, fontSize: 10, fontWeight: 700,
-                                cursor: "pointer",
-                                border: `1px solid ${bs.qrAnimation === anim.id ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
-                                background: bs.qrAnimation === anim.id ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
-                                color: bs.qrAnimation === anim.id ? "#67e8f9" : "rgba(255,255,255,0.4)",
-                                transition: "all 0.18s ease",
-                              }}
-                            >{anim.label}</button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
-              <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", fontSize: 10, color: "rgba(255,255,255,0.3)", lineHeight: 1.6 }}>
-                Viewer scans QR → Paystack checkout → you see their name here. Webhook at <code style={{ color: "rgba(103,232,249,0.6)" }}>/api/paystack/webhook</code>
+              {/* Show / Hide on stream */}
+              <button
+                disabled={!qrGatewayUrl}
+                onClick={toggleOnStream}
+                style={{
+                  width: "100%", padding: "12px", borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: qrGatewayUrl ? "pointer" : "not-allowed",
+                  border: `1px solid ${bs.qrActive ? "#ffd600" : "rgba(255,255,255,0.15)"}`,
+                  background: bs.qrActive ? "linear-gradient(135deg, rgba(255,214,0,0.25), rgba(255,170,0,0.18))" : "rgba(255,255,255,0.06)",
+                  color: bs.qrActive ? "#ffd600" : "rgba(255,255,255,0.55)",
+                  transition: "all 0.2s",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  opacity: qrGatewayUrl ? 1 : 0.4,
+                }}
+              >
+                <span style={{ fontSize: 16 }}>📺</span>
+                {bs.qrActive ? "Showing on Stream — tap to Hide" : "Show SuperChat QR on Stream"}
+              </button>
+
+              {/* Size slider */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.07em" }}>QR Size</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#67e8f9" }}>{bs.qrSize ?? 180}px</div>
+                </div>
+                <input type="range" min={80} max={400} step={10}
+                  value={bs.qrSize ?? 180}
+                  disabled={qrLocked}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value);
+                    localUpdate({ qrSize: v });
+                  }}
+                  onMouseUp={(e) => {
+                    const v = parseInt((e.target as HTMLInputElement).value);
+                    update({ qrSize: v, qrUrl: qrGatewayUrl });
+                  }}
+                  style={{ width: "100%", accentColor: "#06b6d4", cursor: qrLocked ? "not-allowed" : "pointer" }}
+                />
               </div>
+
+              {/* Corner presets + lock */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Quick Position</div>
+                  <button
+                    onClick={() => setQrLocked(l => !l)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                      border: `1px solid ${qrLocked ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.12)"}`,
+                      background: qrLocked ? "rgba(239,68,68,0.12)" : "rgba(255,255,255,0.04)",
+                      color: qrLocked ? "#fca5a5" : "rgba(255,255,255,0.4)",
+                    }}
+                  >
+                    {qrLocked ? "🔒 Locked" : "🔓 Lock"}
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                  {[
+                    { label: "↖ Top-Left",    pos: { x: 8,  y: 8  } },
+                    { label: "↗ Top-Right",   pos: { x: 88, y: 8  } },
+                    { label: "↙ Bot-Left",    pos: { x: 8,  y: 80 } },
+                    { label: "↘ Bot-Right",   pos: { x: 88, y: 80 } },
+                  ].map(preset => {
+                    const isActive = Math.abs((bs.qrPosition?.x ?? 88) - preset.pos.x) < 4 && Math.abs((bs.qrPosition?.y ?? 8) - preset.pos.y) < 4;
+                    return (
+                      <button
+                        key={preset.label}
+                        disabled={qrLocked}
+                        onClick={() => {
+                          localUpdate({ qrPosition: preset.pos });
+                          if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
+                          qrPosDebRef.current = setTimeout(() => update({ qrPosition: preset.pos }), 300);
+                        }}
+                        style={{
+                          padding: "6px 8px", borderRadius: 8, fontSize: 10, fontWeight: 700,
+                          cursor: qrLocked ? "not-allowed" : "pointer",
+                          border: `1px solid ${isActive ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
+                          background: isActive ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
+                          color: isActive ? "#67e8f9" : "rgba(255,255,255,0.4)",
+                          transition: "all 0.15s",
+                        }}
+                      >{preset.label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* X / Y fine sliders */}
+              {["x", "y"].map(axis => (
+                <div key={axis}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Position {axis.toUpperCase()}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#67e8f9" }}>{Math.round((bs.qrPosition?.[axis as "x"|"y"] ?? (axis === "x" ? 88 : 8)))}%</div>
+                  </div>
+                  <input type="range" min={0} max={100} step={1}
+                    value={bs.qrPosition?.[axis as "x"|"y"] ?? (axis === "x" ? 88 : 8)}
+                    disabled={qrLocked}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value);
+                      const next = { ...(bs.qrPosition ?? { x: 88, y: 8 }), [axis]: v };
+                      localUpdate({ qrPosition: next });
+                    }}
+                    onMouseUp={(e) => {
+                      const v = parseInt((e.target as HTMLInputElement).value);
+                      const next = { ...(bs.qrPosition ?? { x: 88, y: 8 }), [axis]: v };
+                      if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
+                      qrPosDebRef.current = setTimeout(() => update({ qrPosition: next }), 200);
+                    }}
+                    style={{ width: "100%", accentColor: "#06b6d4", cursor: qrLocked ? "not-allowed" : "pointer" }}
+                  />
+                </div>
+              ))}
+
+              {/* Glow intensity */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.07em" }}>✨ Glow Intensity</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#ffd600" }}>{bs.qrGlowIntensity ?? 0}%</div>
+                </div>
+                <input type="range" min={0} max={100} step={5}
+                  value={bs.qrGlowIntensity ?? 0}
+                  onChange={(e) => { const v = parseInt(e.target.value); localUpdate({ qrGlowIntensity: v }); }}
+                  onMouseUp={(e) => { const v = parseInt((e.target as HTMLInputElement).value); update({ qrGlowIntensity: v }); }}
+                  style={{ width: "100%", accentColor: "#ffd600" }}
+                />
+              </div>
+
+              {/* Border style */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Border Style</div>
+                <div style={{ display: "flex", gap: 5 }}>
+                  {[
+                    { id: "solid",  label: "— Solid"  },
+                    { id: "glow",   label: "✦ Glow"   },
+                    { id: "dashed", label: "--- Dashed" },
+                    { id: "none",   label: "✕ None"   },
+                  ].map(b => (
+                    <button
+                      key={b.id}
+                      onClick={() => { localUpdate({ qrBorderStyle: b.id }); update({ qrBorderStyle: b.id }); }}
+                      style={{
+                        flex: 1, padding: "5px 3px", borderRadius: 7, fontSize: 9, fontWeight: 700, cursor: "pointer",
+                        border: `1px solid ${bs.qrBorderStyle === b.id ? "#ffd600" : "rgba(255,255,255,0.10)"}`,
+                        background: bs.qrBorderStyle === b.id ? "rgba(255,214,0,0.18)" : "rgba(255,255,255,0.04)",
+                        color: bs.qrBorderStyle === b.id ? "#ffd600" : "rgba(255,255,255,0.4)",
+                        transition: "all 0.15s",
+                      }}
+                    >{b.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Animation style */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Animation</div>
+                <div style={{ display: "flex", gap: 5 }}>
+                  {[
+                    { id: "pulse", label: "💓 Pulse" },
+                    { id: "float", label: "🌊 Float" },
+                    { id: "none",  label: "⏸ Static" },
+                  ].map(anim => (
+                    <button
+                      key={anim.id}
+                      onClick={() => { localUpdate({ qrAnimation: anim.id }); update({ qrAnimation: anim.id }); }}
+                      style={{
+                        flex: 1, padding: "5px 4px", borderRadius: 7, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                        border: `1px solid ${bs.qrAnimation === anim.id ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
+                        background: bs.qrAnimation === anim.id ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
+                        color: bs.qrAnimation === anim.id ? "#67e8f9" : "rgba(255,255,255,0.4)",
+                        transition: "all 0.15s",
+                      }}
+                    >{anim.label}</button>
+                  ))}
+                </div>
+              </div>
+
             </div>
-          )}
+            );
+          })()}
+
 
           {/* ── Donate tab ───────────────────────────────────────────────── */}
           {activeTab === "donate" && (

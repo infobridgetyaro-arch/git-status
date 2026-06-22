@@ -48,6 +48,9 @@ interface BroadcastState {
   qrThankYouActive: boolean;
   qrThankYouName: string;
   qrThankYouTs: number;
+  qrGlowIntensity: number;
+  qrBorderStyle: string;
+  qrAnimation: string;
 }
 
 interface ChatMessage {
@@ -1230,14 +1233,40 @@ function SubsDisplay({ subs, subsStyle, pos, isMobile }: {
   );
 }
 
-/* ─── Paystack QR overlay ─── */
+/* ─── SuperChat QR overlay ─── */
 
-function QRPaystackOverlay({ url, title, size = 200, position }: {
+function QRPaystackOverlay({ url, title, size = 200, position, glowIntensity = 0, borderStyle = "solid", animation = "pulse" }: {
   url: string; title: string; size?: number; position?: OverlayPosition;
+  glowIntensity?: number; borderStyle?: string; animation?: string;
 }) {
   const px = position?.x ?? 85;
   const py = position?.y ?? 20;
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=${size * 2}x${size * 2}&data=${encodeURIComponent(url)}&margin=1&color=1a1a1a&bgcolor=ffffff&ecc=M`;
+
+  const glowAmount = glowIntensity / 100;
+  const outerGlow = glowAmount > 0 ? `0 0 ${Math.round(glowAmount * 80)}px ${Math.round(glowAmount * 30)}px rgba(255,214,0,${glowAmount * 0.8})` : "";
+
+  const borderMap: Record<string, string> = {
+    solid: "4px solid #ffd600",
+    glow: `4px solid #ffd600`,
+    dashed: "3px dashed #ffd600",
+    none: "none",
+  };
+  const qrImgBorder = borderMap[borderStyle] ?? borderMap.solid;
+
+  const outerBoxShadow = [
+    "0 0 0 4px #ffd600",
+    "0 20px 80px rgba(0,0,0,0.9)",
+    outerGlow,
+  ].filter(Boolean).join(", ");
+
+  const animStyle: React.CSSProperties =
+    animation === "pulse"
+      ? { animation: "qr-drop 0.6s cubic-bezier(0.34,1.56,0.64,1), qr-outer-pulse 2.5s ease-in-out 0.6s infinite" }
+      : animation === "float"
+      ? { animation: "qr-drop 0.6s cubic-bezier(0.34,1.56,0.64,1), qr-float 3s ease-in-out 0.6s infinite" }
+      : { animation: "qr-drop 0.6s cubic-bezier(0.34,1.56,0.64,1)" };
+
   return (
     <div style={{
       position: "fixed",
@@ -1245,14 +1274,14 @@ function QRPaystackOverlay({ url, title, size = 200, position }: {
       transform: "translate(-50%, -50%)",
       zIndex: 45,
       pointerEvents: "none",
-      animation: "qr-drop 0.6s cubic-bezier(0.34,1.56,0.64,1)",
-      filter: "drop-shadow(0 12px 40px rgba(0,0,0,0.9))",
+      filter: `drop-shadow(0 12px 40px rgba(0,0,0,0.9))`,
+      ...animStyle,
     }}>
       <div style={{
         borderRadius: 18,
         overflow: "hidden",
         minWidth: size + 40,
-        boxShadow: "0 0 0 4px #ffd600, 0 20px 80px rgba(0,0,0,0.9)",
+        boxShadow: outerBoxShadow,
       }}>
         {/* Super Chat gold header */}
         <div style={{
@@ -1263,7 +1292,7 @@ function QRPaystackOverlay({ url, title, size = 200, position }: {
           <span style={{ fontSize: 22 }}>💛</span>
           <div>
             <div style={{ fontSize: 14, fontWeight: 900, color: "#000", letterSpacing: "0.06em", lineHeight: 1.1 }}>SUPER CHAT</div>
-            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.55)", fontWeight: 700, letterSpacing: "0.04em" }}>Powered by Paystack</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.55)", fontWeight: 700, letterSpacing: "0.04em" }}>Scan to support the stream</div>
           </div>
         </div>
 
@@ -1278,7 +1307,7 @@ function QRPaystackOverlay({ url, title, size = 200, position }: {
             width={size}
             height={size}
             alt="Scan to pay"
-            style={{ display: "block", borderRadius: 8, border: "3px solid #ffd600" }}
+            style={{ display: "block", borderRadius: 8, border: qrImgBorder }}
             draggable={false}
           />
           {title && (
@@ -1304,6 +1333,8 @@ function QRPaystackOverlay({ url, title, size = 200, position }: {
       <style>{`
         @keyframes qr-drop { from{opacity:0;transform:translate(-50%,-65%) scale(0.82);} to{opacity:1;transform:translate(-50%,-50%) scale(1);} }
         @keyframes qr-pulse { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+        @keyframes qr-outer-pulse { 0%,100%{filter:drop-shadow(0 12px 40px rgba(0,0,0,0.9));} 50%{filter:drop-shadow(0 12px 40px rgba(0,0,0,0.9)) drop-shadow(0 0 40px rgba(255,214,0,0.5));} }
+        @keyframes qr-float { 0%,100%{transform:translate(-50%,-50%);} 50%{transform:translate(-50%,-55%);} }
       `}</style>
     </div>
   );
@@ -1720,20 +1751,23 @@ export default function BroadcastPage() {
         );
       })()}
 
-      {/* Paystack QR code overlay */}
+      {/* SuperChat QR code overlay */}
       {state?.qrActive && state.qrUrl && !state.breakActive && !scanFlash && !giftPopup && (
         <QRPaystackOverlay
           url={state.qrUrl}
           title={state.qrTitle ?? ""}
           size={state.qrSize ?? 200}
           position={state.qrPosition}
+          glowIntensity={state.qrGlowIntensity ?? 0}
+          borderStyle={state.qrBorderStyle ?? "solid"}
+          animation={state.qrAnimation ?? "pulse"}
         />
       )}
 
-      {/* Paystack scan-detected animation (4 s) */}
+      {/* Scan-detected flash (4 s) */}
       {scanFlash !== null && <ScanFlashOverlay key={scanFlash} />}
 
-      {/* Paystack payment-received gift popup (6 s) */}
+      {/* Payment-received gift popup (6 s) */}
       {giftPopup && <GiftPopupOverlay key={giftPopup.ts} name={giftPopup.name} />}
 
       {/* Watermark */}
