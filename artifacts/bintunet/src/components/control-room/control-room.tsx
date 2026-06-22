@@ -837,20 +837,28 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
     try {
       const r = await fetch("/api/paystack/init", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: payTitle, amount: parseFloat(payAmount), streamId: payStreamId }),
       });
       const d = await r.json() as { scanUrl?: string; checkoutUrl?: string; error?: string };
-      if (!d.checkoutUrl) { setPayStatus("idle"); return; }
-      // QR encodes the direct Paystack checkout URL so scanning opens their payment page immediately
+      if (!r.ok || !d.checkoutUrl) {
+        console.error("Paystack init failed:", d.error);
+        setPayStatus("idle");
+        return;
+      }
       setPayCheckoutUrl(d.checkoutUrl);
-      // scanUrl is used only for our server-side scan-tracking redirect (not for QR)
-      setPayScanUrl(d.scanUrl ?? d.checkoutUrl);
+      // scanUrl routes through our server to trigger scan animation before redirecting to Paystack
+      const effectiveScanUrl = d.scanUrl ?? d.checkoutUrl;
+      setPayScanUrl(effectiveScanUrl);
       setPayStatus("active");
+      // Push the scanUrl to broadcast state so viewers see the QR that fires scan events
+      setBs(prev => ({ ...prev, qrActive: true, qrUrl: effectiveScanUrl, qrTitle: payTitle }));
+      void pushBroadcast({ qrActive: true, qrUrl: effectiveScanUrl, qrTitle: payTitle, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
       // Poll every 3s
       if (payPollRef.current) clearInterval(payPollRef.current);
       payPollRef.current = setInterval(async () => {
-        const pr = await fetch(`/api/paystack/status?streamId=${encodeURIComponent(payStreamId)}`);
+        const pr = await fetch(`/api/paystack/status?streamId=${encodeURIComponent(payStreamId)}`, { credentials: "include" });
         const pd = await pr.json() as { status: string; payerName?: string };
         if (pd.status === "scanned" || pd.status === "paid") {
           setPayStatus(pd.status as "scanned" | "paid");
@@ -859,11 +867,14 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
         }
       }, 3000);
     } catch { setPayStatus("idle"); }
-  }, [payTitle, payAmount, payStreamId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payTitle, payAmount, payStreamId, bs.qrSize, bs.qrPosition]);
 
   const resetPayment = useCallback(async () => {
     if (payPollRef.current) { clearInterval(payPollRef.current); payPollRef.current = null; }
-    if (payStreamId) await fetch(`/api/paystack/reset?streamId=${encodeURIComponent(payStreamId)}`, { method: "DELETE" });
+    if (payStreamId) await fetch(`/api/paystack/reset?streamId=${encodeURIComponent(payStreamId)}`, { method: "DELETE", credentials: "include" });
+    setBs(prev => ({ ...prev, qrActive: false, qrUrl: "" }));
+    void pushBroadcast({ qrActive: false, qrUrl: "" });
     setPayStatus("idle"); setPayScanUrl(""); setPayCheckoutUrl(""); setPayerName(null);
   }, [payStreamId]);
 
@@ -2478,7 +2489,7 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                           if (bs.qrActive) {
                             update({ qrActive: false });
                           } else {
-                            update({ qrActive: true, qrUrl: payCheckoutUrl, qrTitle: payTitle, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
+                            update({ qrActive: true, qrUrl: payScanUrl || payCheckoutUrl, qrTitle: payTitle, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
                           }
                         }}
                         style={{

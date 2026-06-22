@@ -1707,24 +1707,27 @@ export async function registerBintunetRoutes(
       : `http://localhost:${process.env["PORT"] || 8080}`;
     const callbackUrl = `${host}/api/paystack/paid?ref=${reference}&sid=${encodeURIComponent(streamId)}`;
     try {
+      const txBody: Record<string, unknown> = {
+        email,
+        amount: amountSmallest,
+        reference,
+        callback_url: callbackUrl,
+        metadata: {
+          stream_id: streamId,
+          title: title || "Live Stream Payment",
+          custom_fields: [
+            { display_name: "Stream", variable_name: "stream_id", value: streamId },
+            { display_name: "Title",  variable_name: "payment_title", value: title || "Payment" },
+          ],
+        },
+      };
+      if (process.env["PAYSTACK_CURRENCY"]) {
+        txBody["currency"] = process.env["PAYSTACK_CURRENCY"].toUpperCase();
+      }
       const r = await fetchWithTimeout(`${PAYSTACK_BASE}/transaction/initialize`, {
         method: "POST",
         headers: paystackHeaders(),
-        body: JSON.stringify({
-          email,
-          amount: amountSmallest,
-          currency: useCurrency,
-          reference,
-          callback_url: callbackUrl,
-          metadata: {
-            stream_id: streamId,
-            title: title || "Live Stream Payment",
-            custom_fields: [
-              { display_name: "Stream", variable_name: "stream_id", value: streamId },
-              { display_name: "Title",  variable_name: "payment_title", value: title || "Payment" },
-            ],
-          },
-        }),
+        body: JSON.stringify(txBody),
       });
       const data = await r.json() as unknown as {
         status: boolean;
