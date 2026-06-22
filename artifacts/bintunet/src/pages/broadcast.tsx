@@ -121,14 +121,17 @@ function useBroadcastWS() {
           seenIds.current = new Set();
           setStats({ subs: null, viewers: null });
         }
-        if (msg.type === "paystack_scan") {
+        if (msg.type === "paystack_scan" || msg.type === "qr_scan") {
           const ts = Date.now();
           if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
           setScanFlash(ts);
           scanTimerRef.current = setTimeout(() => setScanFlash(null), 4000);
         }
-        if (msg.type === "paystack_paid") {
-          const payerName = (msg.data?.payerName as string) || "Anonymous";
+        if (msg.type === "paystack_paid" || msg.type === "gift_received" || msg.type === "qr_thank_you") {
+          const payerName =
+            (msg.data?.payerName as string) ||
+            (msg.data?.name as string) ||
+            "Anonymous";
           const ts = Date.now();
           if (giftTimerRef.current) clearTimeout(giftTimerRef.current);
           setGiftPopup({ name: payerName, ts });
