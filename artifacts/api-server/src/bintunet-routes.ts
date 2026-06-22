@@ -1632,6 +1632,211 @@ export async function registerBintunetRoutes(
   }
 
 
+  // ── Paystack payment QR flow ──────────────────────────────────────────────
+
+  const PAYSTACK_BASE = "https://api.paystack.co";
+  const FETCH_TIMEOUT_MS = 12000;
+
+  function paystackHeaders() {
+    const key = process.env["PAYSTACK_SECRET_KEY"];
+    if (!key) throw new Error("PAYSTACK_SECRET_KEY is not configured.");
+    return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+  }
+
+  async function fetchWithTimeout(url: string, opts: RequestInit, ms = FETCH_TIMEOUT_MS): Promise<globalThis.Response> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await globalThis.fetch(url, { ...opts, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const paymentSessions = new Map<string, {
+    reference: string;
+    amount: number;
+    currency: string;
+    title: string;
+    status: "active" | "scanned" | "paid";
+    payerName: string | null;
+    payerEmail: string | null;
+    createdAt: number;
+  }>();
+
+  const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+  const RATE_LIMIT_WINDOW = 60_000;
+  const RATE_LIMIT_MAX    = 20;
+
+  function checkRateLimit(ip: string): boolean {
+    const now = Date.now();
+    const entry = rateLimitMap.get(ip);
+    if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW) {
+      rateLimitMap.set(ip, { count: 1, windowStart: now });
+      return true;
+    }
+    if (entry.count >= RATE_LIMIT_MAX) return false;
+    entry.count++;
+    return true;
+  }
+
+  setInterval(() => {
+    const cutoff = Date.now() - RATE_LIMIT_WINDOW * 2;
+    for (const [ip, e] of rateLimitMap) { if (e.windowStart < cutoff) rateLimitMap.delete(ip); }
+    const sessionCutoff = Date.now() - 2 * 60 * 60 * 1000;
+    for (const [sid, sess] of paymentSessions) { if (sess.createdAt < sessionCutoff) paymentSessions.delete(sid); }
+  }, 5 * 60 * 1000);
+
+  app.post("/api/paystack/init", requireAuth, async (req: Request, res: Response): Promise<void> => {
+    const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+    if (!checkRateLimit(ip)) {
+      res.status(429).json({ error: "Too many payment requests. Please wait a minute." });
+      return;
+    }
+    const { title, amount, streamId, currency } = req.body as {
+      title?: string; amount?: number; streamId?: string; currency?: string;
+    };
+    if (!amount || !streamId) { res.status(400).json({ error: "amount and streamId required" }); return; }
+    if (amount <= 0 || amount > 100_000) { res.status(400).json({ error: "amount must be between 0 and 100,000" }); return; }
+    const amountSmallest = Math.round(amount * 100);
+    const useCurrency = (currency ?? process.env["PAYSTACK_CURRENCY"] ?? "NGN").toUpperCase();
+    const reference = `bnpay_${streamId.slice(0, 8)}_${Date.now()}`;
+    const email = `viewer_${Date.now()}@bintupay.live`;
+    const host = process.env["REPLIT_DEV_DOMAIN"]
+      ? `https://${process.env["REPLIT_DEV_DOMAIN"]}`
+      : `http://localhost:${process.env["PORT"] || 8080}`;
+    const callbackUrl = `${host}/api/paystack/paid?ref=${reference}&sid=${encodeURIComponent(streamId)}`;
+    try {
+      const r = await fetchWithTimeout(`${PAYSTACK_BASE}/transaction/initialize`, {
+        method: "POST",
+        headers: paystackHeaders(),
+        body: JSON.stringify({
+          email,
+          amount: amountSmallest,
+          currency: useCurrency,
+          reference,
+          callback_url: callbackUrl,
+          metadata: {
+            stream_id: streamId,
+            title: title || "Live Stream Payment",
+            custom_fields: [
+              { display_name: "Stream", variable_name: "stream_id", value: streamId },
+              { display_name: "Title",  variable_name: "payment_title", value: title || "Payment" },
+            ],
+          },
+        }),
+      });
+      const data = await r.json() as unknown as {
+        status: boolean;
+        message?: string;
+        data?: { authorization_url: string; reference: string };
+      };
+      if (!data.status || !data.data) {
+        res.status(502).json({ error: data.message ?? "Paystack rejected the request", paystackStatus: data.status });
+        return;
+      }
+      paymentSessions.set(streamId, {
+        reference, amount: amountSmallest, currency: useCurrency, title: title || "Payment",
+        status: "active", payerName: null, payerEmail: null, createdAt: Date.now(),
+      });
+      const scanUrl = `${host}/api/paystack/scan?ref=${encodeURIComponent(reference)}&sid=${encodeURIComponent(streamId)}&to=${encodeURIComponent(data.data.authorization_url)}`;
+      res.json({ reference, currency: useCurrency, checkoutUrl: data.data.authorization_url, scanUrl });
+    } catch (e: unknown) {
+      if ((e as { name?: string }).name === "AbortError") {
+        res.status(504).json({ error: "Paystack API timed out. Try again." });
+      } else {
+        res.status(500).json({ error: e instanceof Error ? e.message : "Unexpected error" });
+      }
+    }
+  });
+
+  app.get("/api/paystack/scan", (req: Request, res: Response): void => {
+    const { ref, sid, to } = req.query as { ref?: string; sid?: string; to?: string };
+    if (sid && paymentSessions.has(sid)) {
+      const sess = paymentSessions.get(sid)!;
+      if (sess.reference === ref && sess.status === "active") {
+        sess.status = "scanned";
+        broadcastGlobal("paystack_scan", { streamId: sid, reference: ref });
+      }
+    }
+    if (to) { res.redirect(decodeURIComponent(to)); }
+    else { res.send("Redirecting to payment…"); }
+  });
+
+  app.get("/api/paystack/paid", async (req: Request, res: Response): Promise<void> => {
+    const { ref, sid } = req.query as { ref?: string; sid?: string };
+    if (!ref || !sid) { res.send("<h2>Payment complete. Return to the stream.</h2>"); return; }
+    try {
+      const r = await fetchWithTimeout(`${PAYSTACK_BASE}/transaction/verify/${encodeURIComponent(ref)}`, {
+        headers: paystackHeaders(),
+      });
+      const data = await r.json() as unknown as {
+        status: boolean;
+        data?: { status: string; customer?: { first_name?: string; last_name?: string; email?: string } };
+      };
+      if (data.status && data.data?.status === "success") {
+        const customer = data.data.customer;
+        const name = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || customer?.email || "Someone";
+        const sess = paymentSessions.get(sid);
+        if (sess) { sess.status = "paid"; sess.payerName = name; sess.payerEmail = customer?.email || null; }
+        broadcastGlobal("paystack_paid", { streamId: sid, reference: ref, payerName: name });
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Thank you!</title><style>body{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f0f0f;color:#fff}h1{font-size:2rem;margin-bottom:8px}p{color:rgba(255,255,255,0.6);font-size:1.1rem}</style></head><body><h1>🎉 Thank you, ${name}!</h1><p>Your payment was received. You can close this tab.</p></body></html>`);
+      } else {
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Payment</title><style>body{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f0f0f;color:#fff}</style></head><body><h2>Payment pending or not confirmed yet.</h2><p>Please contact the streamer if you believe this is an error.</p></body></html>`);
+      }
+    } catch {
+      res.send("<h2>Payment verification error. Please contact the streamer.</h2>");
+    }
+  });
+
+  app.post("/api/paystack/webhook",
+    express.raw({ type: "application/json" }),
+    (req: Request, res: Response): void => {
+      const sig = req.headers["x-paystack-signature"] as string | undefined;
+      const key = process.env["PAYSTACK_SECRET_KEY"];
+      if (key && sig) {
+        const expected = crypto.createHmac("sha512", key).update(req.body as Buffer).digest("hex");
+        if (expected !== sig) { res.status(401).send("Bad signature"); return; }
+      }
+      res.sendStatus(200);
+      try {
+        const evt = JSON.parse((req.body as Buffer).toString()) as {
+          event: string;
+          data?: {
+            reference?: string;
+            status?: string;
+            metadata?: { stream_id?: string };
+            customer?: { first_name?: string; last_name?: string; email?: string };
+          };
+        };
+        if (evt.event === "charge.success") {
+          const sid = evt.data?.metadata?.stream_id;
+          const ref = evt.data?.reference;
+          const customer = evt.data?.customer;
+          const name = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || customer?.email || "Someone";
+          if (sid) {
+            const sess = paymentSessions.get(sid);
+            if (sess && ref === sess.reference) { sess.status = "paid"; sess.payerName = name; sess.payerEmail = customer?.email || null; }
+            broadcastGlobal("paystack_paid", { streamId: sid, reference: ref, payerName: name });
+          }
+        }
+      } catch {}
+    }
+  );
+
+  app.get("/api/paystack/status", requireAuth, (req: Request, res: Response): void => {
+    const { streamId } = req.query as { streamId?: string };
+    if (!streamId || !paymentSessions.has(streamId)) { res.json({ status: "none" }); return; }
+    const sess = paymentSessions.get(streamId)!;
+    res.json({ status: sess.status, payerName: sess.payerName, reference: sess.reference, title: sess.title, amount: sess.amount, currency: sess.currency });
+  });
+
+  app.delete("/api/paystack/reset", requireAuth, (req: Request, res: Response): void => {
+    const { streamId } = req.query as { streamId?: string };
+    if (streamId) paymentSessions.delete(streamId);
+    res.json({ ok: true });
+  });
+
   startLiveCountPolling();
   httpServer.on("close", stopLiveCountPolling);
 }

@@ -2349,147 +2349,184 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
           {activeTab === "qr" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-              {/* Auto-fill donation gateway URL */}
-              <button
-                onClick={() => {
-                  fetch("/api/gateway/url", { credentials: "include" })
-                    .then(r => r.json())
-                    .then((d: { gatewayUrl?: string }) => {
-                      if (d.gatewayUrl) {
-                        localUpdate({ qrUrl: d.gatewayUrl, qrTitle: "\u{1F49A} Donate Here" });
-                        update({ qrUrl: d.gatewayUrl, qrTitle: "\u{1F49A} Donate Here" });
-                      }
-                    })
-                    .catch(() => {});
-                }}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  padding: "9px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                  background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",
-                  color: "#22c55e", cursor: "pointer", width: "100%",
-                }}
-              >
-                <Heart size={12} /> Auto-fill Donation Gateway URL
-              </button>
-
-              {/* Title input */}
-              <div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Title</div>
-                <input
-                  type="text"
-                  value={bs.qrTitle}
-                  onChange={(e) => localUpdate({ qrTitle: e.target.value })}
-                  placeholder="Buy me coffee"
-                  style={{
-                    width: "100%", boxSizing: "border-box",
-                    padding: "9px 12px", borderRadius: 8, fontSize: 12,
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                    color: "#fff", outline: "none",
-                  }}
-                />
+              {/* Paystack branding header */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, background: "rgba(0,122,255,0.07)", border: "1px solid rgba(0,122,255,0.18)" }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: "#00b8d9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ fontSize: 14, color: "#fff" }}>₦</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Paystack Payment QR</div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Viewers scan → pay → you see their name live</div>
+                </div>
               </div>
 
-              {/* URL input */}
-              <div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Destination URL</div>
-                <input
-                  type="text"
-                  value={bs.qrUrl}
-                  onChange={(e) => localUpdate({ qrUrl: e.target.value })}
-                  placeholder="https://your-link-here.com"
-                  style={{
-                    width: "100%", boxSizing: "border-box",
-                    padding: "9px 12px", borderRadius: 8, fontSize: 12,
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                    color: "#fff", outline: "none",
-                  }}
-                />
-              </div>
-
-              {/* Professional QR preview + live scan counter */}
-              {bs.qrUrl && (
-                <div style={{
-                  borderRadius: 14, overflow: "hidden",
-                  background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-                  border: "1px solid rgba(6,182,212,0.2)",
-                  padding: 20,
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-                    <div style={{ fontSize: 11, color: "#67e8f9", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                      ▣ QR Preview
-                    </div>
-                    {/* Live scan counter badge */}
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "4px 10px", borderRadius: 999,
-                      background: bs.qrScanCount > 0 ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.05)",
-                      border: `1px solid ${bs.qrScanCount > 0 ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.1)"}`,
-                      transition: "all 0.3s",
-                    }}>
-                      <span style={{ fontSize: 11 }}>👁</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: bs.qrScanCount > 0 ? "#4ade80" : "rgba(255,255,255,0.3)" }}>
-                        {bs.qrScanCount === 0 ? "No scans yet" : bs.qrScanCount === 1 ? "1 Scan" : `${bs.qrScanCount} Scans`}
-                      </span>
-                    </div>
+              {payStatus === "idle" || payStatus === "generating" ? (
+                <>
+                  {/* Stream picker */}
+                  <div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Select Stream</div>
+                    <select
+                      value={payStreamId}
+                      onChange={(e) => setPayStreamId(e.target.value)}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none", cursor: "pointer" }}
+                    >
+                      <option value="" style={{ background: "#1a1a2e" }}>— pick a stream —</option>
+                      {streams.map((s) => (
+                        <option key={s.id} value={s.id} style={{ background: "#1a1a2e" }}>
+                          {s.sourceType === "tiktok" ? `@${s.tiktokUsername}` : s.sourceType === "youtube" ? (s.youtubeSourceUrl || "YouTube") : (s.cameraDevice || "Camera")} ({s.id.slice(0, 6)})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  {/* Orange QR card matching stream overlay */}
-                  <div style={{
-                    background: "#FF813F", borderRadius: 12,
-                    overflow: "hidden",
-                    boxShadow: "0 4px 24px rgba(255,129,63,0.35), 0 8px 32px rgba(0,0,0,0.4)",
-                  }}>
-                    {/* Title bar */}
-                    <div style={{
-                      padding: "8px 14px", textAlign: "center",
-                      background: "rgba(255,255,255,0.12)",
-                      fontSize: 12, fontWeight: 800, color: "#fff",
-                    }}>
-                      {bs.qrTitle || "☕ Buy Me a Coffee"}
-                    </div>
-                    {/* QR image */}
-                    <div style={{ background: "#fff", padding: 10 }}>
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(bs.qrUrl)}&color=1a1a1a&bgcolor=ffffff&margin=2`}
-                        alt="QR code"
-                        style={{ width: 140, height: 140, display: "block" }}
+                  {/* Payment title */}
+                  <div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Payment Title</div>
+                    <input
+                      type="text"
+                      value={payTitle}
+                      onChange={(e) => setPayTitle(e.target.value)}
+                      placeholder="Support the stream"
+                      style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
+                    />
+                  </div>
+
+                  {/* Amount */}
+                  <div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Amount (NGN)</div>
+                    <div style={{ position: "relative" }}>
+                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.4)", fontSize: 13, fontWeight: 700 }}>₦</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        placeholder="500"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px 9px 28px", borderRadius: 8, fontSize: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
                       />
                     </div>
-                    {/* Scan count footer */}
-                    <div style={{
-                      padding: "6px 14px", textAlign: "center",
-                      borderTop: "1px solid rgba(255,255,255,0.25)",
-                      fontSize: 11, fontWeight: 700, color: "#fff",
-                    }}>
-                      {bs.qrScanCount === 0 ? "Scan to donate" : bs.qrScanCount === 1 ? "1 Scan ✓" : `${bs.qrScanCount} Scans ✓`}
-                    </div>
                   </div>
 
-                  {/* Thank-you status */}
-                  {bs.qrThankYouName && Date.now() - bs.qrThankYouTs < 11000 && (
+                  <button
+                    onClick={generatePaymentQr}
+                    disabled={!payAmount || !payStreamId || payStatus === "generating"}
+                    style={{
+                      padding: "11px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                      cursor: (!payAmount || !payStreamId) ? "not-allowed" : "pointer",
+                      border: "1px solid rgba(0,184,217,0.4)",
+                      background: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.04)" : "rgba(0,184,217,0.18)",
+                      color: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.3)" : "#67e8f9",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                      opacity: payStatus === "generating" ? 0.6 : 1,
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    {payStatus === "generating" ? (
+                      <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Generating…</>
+                    ) : (
+                      <><span style={{ fontSize: 16 }}>▣</span> Generate Payment QR</>
+                    )}
+                  </button>
+                </>
+              ) : (
+                /* ── Active payment session ── */
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+                  {/* Status pill */}
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    padding: "10px 14px", borderRadius: 10,
+                    background: payStatus === "paid" ? "rgba(52,211,153,0.12)" : payStatus === "scanned" ? "rgba(251,191,36,0.12)" : "rgba(0,184,217,0.08)",
+                    border: `1px solid ${payStatus === "paid" ? "rgba(52,211,153,0.35)" : payStatus === "scanned" ? "rgba(251,191,36,0.35)" : "rgba(0,184,217,0.25)"}`,
+                  }}>
                     <div style={{
-                      width: "100%", padding: "10px 12px", borderRadius: 10,
-                      background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",
-                      display: "flex", alignItems: "center", gap: 8,
-                    }}>
-                      <span style={{ fontSize: 16 }}>💚</span>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#4ade80" }}>
-                          Thank you, {bs.qrThankYouName}!
-                        </div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                          QR will reappear in a few seconds
-                        </div>
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: payStatus === "paid" ? "#34d399" : payStatus === "scanned" ? "#fbbf24" : "#00b8d9",
+                      animation: payStatus === "paid" ? "none" : "cr-pulse 1.2s infinite",
+                    }} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: payStatus === "paid" ? "#34d399" : payStatus === "scanned" ? "#fbbf24" : "#67e8f9" }}>
+                      {payStatus === "paid"
+                        ? `🎉 Paid — ${payerName ?? "Someone"}`
+                        : payStatus === "scanned"
+                        ? "⚡ Scanned! Awaiting payment…"
+                        : "● Waiting for scan…"}
+                    </span>
+                  </div>
+
+                  {/* QR code */}
+                  {payStatus !== "paid" && payCheckoutUrl && (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "16px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#67e8f9", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                        {payStatus === "scanned" ? "⚡ Being scanned now" : "Scan to Pay"}
                       </div>
+                      <div style={{ padding: 10, borderRadius: 10, background: "#fff", boxShadow: payStatus === "scanned" ? "0 0 24px rgba(251,191,36,0.4)" : "0 4px 20px rgba(0,0,0,0.3)" }}>
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(payCheckoutUrl)}&color=000000&bgcolor=ffffff&margin=2`}
+                          alt="Payment QR"
+                          style={{ width: 150, height: 150, display: "block" }}
+                        />
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                        <strong style={{ color: "#fff" }}>{payTitle}</strong> — <span style={{ color: "#67e8f9" }}>₦{payAmount}</span>
+                      </div>
+                      <a href={payCheckoutUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#67e8f9", textDecoration: "underline", opacity: 0.7 }}>
+                        Open payment page ↗
+                      </a>
+                      <button
+                        onClick={() => {
+                          if (bs.qrActive) {
+                            update({ qrActive: false });
+                          } else {
+                            update({ qrActive: true, qrUrl: payCheckoutUrl, qrTitle: payTitle, qrSize: bs.qrSize, qrPosition: bs.qrPosition });
+                          }
+                        }}
+                        style={{
+                          width: "100%", padding: "8px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                          border: `1px solid ${bs.qrActive ? "#06b6d4" : "rgba(255,255,255,0.15)"}`,
+                          background: bs.qrActive ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.05)",
+                          color: bs.qrActive ? "#67e8f9" : "rgba(255,255,255,0.55)",
+                        }}
+                      >
+                        {bs.qrActive ? "▣ Hide from stream" : "▣ Show on stream"}
+                      </button>
                     </div>
                   )}
 
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textAlign: "center", maxWidth: 200, wordBreak: "break-all" }}>
-                    {bs.qrUrl}
-                  </div>
+                  {/* Thank-you card */}
+                  {payStatus === "paid" && payerName && (
+                    <div style={{ padding: "16px", borderRadius: 12, background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.25)", textAlign: "center" }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>🎉</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#34d399" }}>Thank you, {payerName}!</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>Payment confirmed via Paystack</div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={resetPayment}
+                    style={{ padding: "8px", borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(255,80,80,0.25)", background: "rgba(255,80,80,0.07)", color: "rgba(255,120,120,0.8)" }}
+                  >
+                    Reset / New payment
+                  </button>
+
+                  {payStatus !== "paid" && (
+                    <PositionSliders
+                      pos={bs.qrPosition}
+                      onChange={(p) => {
+                        localUpdate({ qrPosition: p });
+                        if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
+                        qrPosDebRef.current = setTimeout(() => update({ qrSize: bs.qrSize, qrPosition: p }), 600);
+                      }}
+                      label="QR Position on Stream"
+                      accent="#06b6d4"
+                    />
+                  )}
                 </div>
               )}
+
+              <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", fontSize: 10, color: "rgba(255,255,255,0.3)", lineHeight: 1.6 }}>
+                Viewer scans QR → Paystack checkout → you see their name here. Webhook at <code style={{ color: "rgba(103,232,249,0.6)" }}>/api/paystack/webhook</code>
+              </div>
             </div>
           )}
 
