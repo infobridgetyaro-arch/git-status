@@ -1,0 +1,7 @@
+- [FFmpeg -stats flag](ffmpeg-stats-flag.md) — FFmpeg 7 suppresses frame= output with -loglevel warning unless -stats is explicit; required for watchdog.
+- [FFmpeg version compat](ffmpeg-compat.md) — Use -fps_mode cfr not -vsync cfr in FFmpeg 7+.
+- [Break decoder errors](break-decoder-errors.md) — Decoder stderr was silenced; now uses -loglevel error + logs to stream. HTTP needs -tls_verify 0 + timeout.
+- [proc_stats frame count](proc-stats-frames.md) — lastFrameCount was closure-local; must write to StreamProcess.lastFrameCount from stderr handler so polling can broadcast it.
+- [Stream process killers](stream-killers.md) — Three confirmed killers: drain deadlock in startWritingTo, startup watchdog calling stopStream, PM2 max_memory_restart at 512M.
+- [FFmpeg pixel format YUV→RGBA](ffmpeg-yuva420p.md) — Use yuva420p (not rgba) for transparent-padded source video; rgba triggers swscaler deprecated-pixel-format warning on YUV sources.
+- [HA & scalability architecture](ha-scalability.md) — HLS encoder is a SEPARATE FFmpeg process; Redis is opt-in; storage.ts IStorage is sync (reads from MemStorage cache); HybridStorage wraps MemStorage + async Redis writes.
