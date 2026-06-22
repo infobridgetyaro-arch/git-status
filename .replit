@@ -71,3 +71,15 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+NODE_ENV = "development"
+LOG_LEVEL = "info"
+VPS_ROLE = "primary"
+HLS_ENABLED = "false"
+HLS_SEGMENT_DIR = "/tmp/hls"
+BINTUNET_PASSWORD = "bintunet"
+FAILOVER_POLL_MS = "5000"
+FAILOVER_TIMEOUT_MS = "15000"
