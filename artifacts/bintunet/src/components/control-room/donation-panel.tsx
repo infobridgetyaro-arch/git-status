@@ -1,12 +1,15 @@
 /**
  * donation-panel.tsx
  *
- * Control room panel for the self-generating QR Donation system.
- * Shows live donation feed, total raised, and overlay controls.
+ * SuperChat Panel — control room panel for the self-generating QR SuperChat system.
+ * Shows live SuperChat feed, total raised, tier breakdown, and overlay controls.
+ *
+ * NOTE: backend event names (donation_alert, gift_received) are unchanged for
+ * backward compatibility. Only the UI labels are renamed to "SuperChat".
  */
 
 import { useState, useEffect, useRef } from "react";
-import { Heart, Wifi, WifiOff, RefreshCw, ExternalLink, Copy, CheckCheck } from "lucide-react";
+import { Wifi, WifiOff, RefreshCw, ExternalLink, Copy, CheckCheck, Zap } from "lucide-react";
 
 export interface DonationRecord {
   id: string;
@@ -40,8 +43,17 @@ interface DonationPanelProps {
   donationAlertActive: boolean;
   onToggleTicker: (active: boolean) => void;
   onToggleAlert: (active: boolean) => void;
-  // Called when a new donation_alert WS event arrives
   latestDonation?: DonationRecord | null;
+}
+
+const KES_TIERS = [
+  { label: "Silver",     minKes: 10,   maxKes: 499,  color: "#94a3b8", glow: "#64748b", icon: "🥈", badge: "SILVER"     },
+  { label: "Gold",       minKes: 500,  maxKes: 1999, color: "#fbbf24", glow: "#f59e0b", icon: "🥇", badge: "GOLD"       },
+  { label: "University", minKes: 2000, maxKes: Infinity, color: "#a78bfa", glow: "#7c3aed", icon: "🎓", badge: "UNIVERSITY" },
+];
+
+function getTier(amountKes: number) {
+  return KES_TIERS.find(t => amountKes >= t.minKes && amountKes < t.maxKes) ?? KES_TIERS[0];
 }
 
 export function DonationPanel({
@@ -80,20 +92,16 @@ export function DonationPanel({
 
   useEffect(() => { void fetchAll(); }, []);
 
-  // Add new donation when WS event arrives
   useEffect(() => {
     if (!latestDonation) return;
     setDonations(prev => {
       if (prev.some(d => d.id === latestDonation.id)) return prev;
       return [latestDonation, ...prev].slice(0, 50);
     });
-    // Update health counter
     setHealth(h => h ? { ...h, totalRaised: h.totalRaised + latestDonation.amountKes, donationCount: h.donationCount + 1 } : h);
-    // Scroll to top of feed
     setTimeout(() => { feedRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }, 100);
   }, [latestDonation]);
 
-  // Build QR preview URL using qrserver.com
   useEffect(() => {
     if (gatewayInfo?.gatewayUrl) {
       setQrDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(gatewayInfo.gatewayUrl)}&color=000000&bgcolor=ffffff&margin=2`);
@@ -108,9 +116,13 @@ export function DonationPanel({
     }
   };
 
-  const isHealthy = health?.status === "ok";
+  const isHealthy   = health?.status === "ok";
   const totalRaised = health?.totalRaised ?? 0;
-  const donationCount = health?.donationCount ?? 0;
+  const totalCount  = health?.donationCount ?? 0;
+
+  const silverCount     = donations.filter(d => getTier(d.amountKes).label === "Silver").length;
+  const goldCount       = donations.filter(d => getTier(d.amountKes).label === "Gold").length;
+  const universityCount = donations.filter(d => getTier(d.amountKes).label === "University").length;
 
   const Label = ({ children }: { children: React.ReactNode }) => (
     <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>{children}</div>
@@ -130,29 +142,46 @@ export function DonationPanel({
     >
       <span style={{ fontSize: 14 }}>{icon}</span>
       <span>{active ? `${label} On` : label}</span>
-      {active && <div style={{ width: 6, height: 6, borderRadius: "50%", background: accent, marginLeft: "auto", animation: "cr-pulse 1s infinite" }} />}
+      {active && <div style={{ width: 6, height: 6, borderRadius: "50%", background: accent, marginLeft: "auto", animation: "sc-pulse 1s infinite" }} />}
     </button>
   );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-      {/* ── Gateway URL & QR ─────────────────────────────────────────────────── */}
-      <div style={{ borderRadius: 12, overflow: "hidden", background: "linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(16,185,129,0.04) 100%)", border: "1px solid rgba(34,197,94,0.2)", padding: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+      {/* ── SuperChat Gateway header ──────────────────────────────────────── */}
+      <div style={{
+        borderRadius: 14, overflow: "hidden",
+        background: "linear-gradient(135deg, rgba(34,197,94,0.10) 0%, rgba(16,185,129,0.05) 100%)",
+        border: "1px solid rgba(34,197,94,0.25)",
+        padding: 16,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Heart size={14} color={accent} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#86efac" }}>Donation Gateway</span>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(34,197,94,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Zap size={14} color={accent} />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#86efac", letterSpacing: "-0.01em" }}>SuperChat Gateway</div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", letterSpacing: "0.05em" }}>POWERED BY PAYSTACK</div>
+            </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {health !== null && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 99, background: isHealthy ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)", border: `1px solid ${isHealthy ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}` }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 99,
+                background: isHealthy ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                border: `1px solid ${isHealthy ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+              }}>
                 {isHealthy ? <Wifi size={9} color={accent} /> : <WifiOff size={9} color="#f87171" />}
-                <span style={{ fontSize: 9, fontWeight: 700, color: isHealthy ? accent : "#f87171" }}>{isHealthy ? "LIVE" : "OFFLINE"}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: isHealthy ? accent : "#f87171" }}>
+                  {isHealthy ? "LIVE" : "OFFLINE"}
+                </span>
               </div>
             )}
             <button onClick={fetchAll} disabled={loading} style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.35)", padding: 2 }}>
-              <RefreshCw size={12} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
+              <RefreshCw size={12} style={{ animation: loading ? "sc-spin 1s linear infinite" : "none" }} />
             </button>
           </div>
         </div>
@@ -161,15 +190,20 @@ export function DonationPanel({
           <>
             {/* QR code */}
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-              <div style={{ padding: 10, background: "#fff", borderRadius: 12, boxShadow: "0 0 20px rgba(34,197,94,0.2)", border: "2px solid rgba(34,197,94,0.3)" }}>
-                <img src={qrDataUrl} alt="Donation QR" width={140} height={140} style={{ display: "block" }} />
+              <div style={{
+                padding: 10, background: "#fff", borderRadius: 14,
+                boxShadow: "0 0 0 3px rgba(34,197,94,0.4), 0 0 32px rgba(34,197,94,0.2)",
+              }}>
+                <img src={qrDataUrl} alt="SuperChat QR" width={140} height={140} style={{ display: "block" }} />
               </div>
             </div>
 
-            {/* URL */}
-            <div style={{ background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: "9px 12px", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ flex: 1, fontSize: 10, color: "rgba(255,255,255,0.55)", fontFamily: "monospace", wordBreak: "break-all", lineHeight: 1.4 }}>{gatewayInfo.gatewayUrl}</span>
-              <button onClick={copyUrl} title="Copy URL" style={{ flexShrink: 0, background: "transparent", border: "none", cursor: "pointer", color: copied ? accent : "rgba(255,255,255,0.4)", padding: 2 }}>
+            {/* URL row */}
+            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 10, padding: "9px 12px", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ flex: 1, fontSize: 10, color: "rgba(255,255,255,0.5)", fontFamily: "monospace", wordBreak: "break-all", lineHeight: 1.4 }}>
+                {gatewayInfo.gatewayUrl}
+              </span>
+              <button onClick={copyUrl} title="Copy URL" style={{ flexShrink: 0, background: "transparent", border: "none", cursor: "pointer", color: copied ? accent : "rgba(255,255,255,0.4)", padding: 2, transition: "color 0.2s" }}>
                 {copied ? <CheckCheck size={14} /> : <Copy size={14} />}
               </button>
               <a href={gatewayInfo.gatewayUrl} target="_blank" rel="noopener noreferrer" style={{ color: "rgba(255,255,255,0.4)", display: "flex" }}>
@@ -190,74 +224,129 @@ export function DonationPanel({
         )}
       </div>
 
-      {/* ── Stats row ────────────────────────────────────────────────────────── */}
+      {/* ── Stats row ─────────────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {[
-          { label: "Total Raised", value: `KES ${totalRaised.toLocaleString("en-KE", { minimumFractionDigits: 0 })}`, color: accent },
-          { label: "Donations", value: String(donationCount), color: "#818cf8" },
+          { label: "Total Raised",   value: `KES ${totalRaised.toLocaleString("en-KE", { minimumFractionDigits: 0 })}`, color: accent },
+          { label: "SuperChats",     value: String(totalCount), color: "#818cf8" },
         ].map(s => (
-          <div key={s.label} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "12px 14px" }}>
+          <div key={s.label} style={{
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10, padding: "12px 14px",
+          }}>
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'Space Grotesk', sans-serif" }}>{s.value}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'Space Grotesk', sans-serif", fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* ── Overlay controls ─────────────────────────────────────────────────── */}
+      {/* ── Tier breakdown ────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 6 }}>
+        {[
+          { tier: "Silver",     count: silverCount,     color: "#94a3b8", icon: "🥈" },
+          { tier: "Gold",       count: goldCount,       color: "#fbbf24", icon: "🥇" },
+          { tier: "University", count: universityCount, color: "#a78bfa", icon: "🎓" },
+        ].map(t => (
+          <div key={t.tier} style={{
+            flex: 1, padding: "8px 6px", borderRadius: 10, textAlign: "center",
+            background: `${t.color}0f`,
+            border: `1px solid ${t.color}2a`,
+          }}>
+            <div style={{ fontSize: 14, marginBottom: 2 }}>{t.icon}</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: t.color, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{t.count}</div>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t.tier}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Overlay controls ──────────────────────────────────────────────── */}
       <div>
         <Label>Stream Overlay</Label>
         <div style={{ display: "flex", gap: 8 }}>
-          <ToggleBtn active={donationAlertActive} onToggle={() => onToggleAlert(!donationAlertActive)} label="Pop-up Alert" icon="🎉" />
-          <ToggleBtn active={donationTickerActive} onToggle={() => onToggleTicker(!donationTickerActive)} label="Ticker" icon="💚" />
+          <ToggleBtn active={donationAlertActive} onToggle={() => onToggleAlert(!donationAlertActive)} label="SC Alert" icon="⚡" />
+          <ToggleBtn active={donationTickerActive} onToggle={() => onToggleTicker(!donationTickerActive)} label="SC Ticker" icon="📊" />
         </div>
         <div style={{ marginTop: 8, fontSize: 10, color: "rgba(255,255,255,0.25)", lineHeight: 1.5 }}>
-          Pop-up Alert shows each donation for ~8 s. Ticker scrolls the latest donors at the bottom of the stream.
+          SC Alert shows each SuperChat pop-up for ~8 s. Ticker scrolls latest supporters at the bottom of the stream.
         </div>
       </div>
 
-      {/* ── Live donation feed ───────────────────────────────────────────────── */}
+      {/* ── Live SuperChat feed ───────────────────────────────────────────── */}
       <div>
-        <Label>Live Donations</Label>
-        <div ref={feedRef} style={{ maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+        <Label>Live SuperChats</Label>
+        <div ref={feedRef} style={{ maxHeight: 280, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
           {donations.length === 0 && (
-            <div style={{ textAlign: "center", padding: "20px 0", color: "rgba(255,255,255,0.2)", fontSize: 11 }}>
-              No donations yet. Share the QR code on stream!
+            <div style={{ textAlign: "center", padding: "24px 0", color: "rgba(255,255,255,0.2)", fontSize: 11 }}>
+              <div style={{ fontSize: 24, marginBottom: 8 }}>⚡</div>
+              No SuperChats yet. Share the QR code on stream!
             </div>
           )}
-          {donations.map(d => (
-            <div key={d.id} style={{
-              padding: "10px 12px", borderRadius: 10,
-              background: "rgba(255,255,255,0.04)",
-              border: `1px solid ${d.color}33`,
-              borderLeft: `3px solid ${d.color}`,
-              display: "flex", alignItems: "center", gap: 10,
-              animation: "slideIn 0.3s ease",
-            }}>
-              <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${d.color}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 14 }}>💚</span>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>{d.name}</span>
-                  <span style={{ padding: "1px 7px", borderRadius: 99, background: `${d.color}22`, color: d.color, fontSize: 10, fontWeight: 700 }}>{d.amount}</span>
+          {donations.map(d => {
+            const tier = getTier(d.amountKes);
+            return (
+              <div key={d.id} style={{
+                padding: "10px 12px", borderRadius: 10,
+                background: `${tier.color}08`,
+                border: `1px solid ${tier.color}22`,
+                borderLeft: `3px solid ${tier.color}`,
+                display: "flex", alignItems: "center", gap: 10,
+                animation: "sc-slide-in 0.3s ease",
+                backdropFilter: "blur(8px)",
+              }}>
+                {/* Tier icon bubble */}
+                <div style={{
+                  width: 34, height: 34, borderRadius: "50%",
+                  background: `${tier.color}18`,
+                  border: `1px solid ${tier.color}33`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0, fontSize: 16,
+                  boxShadow: `0 0 10px ${tier.glow}40`,
+                }}>
+                  {tier.icon}
                 </div>
-                {d.message && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{d.message}"</div>}
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", marginTop: 2 }}>
-                  {new Date(d.ts).toLocaleTimeString()} · {d.channel}
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                    <span style={{
+                      padding: "1px 7px", borderRadius: 99, flexShrink: 0,
+                      background: `${tier.color}22`, color: tier.color,
+                      fontSize: 10, fontWeight: 800,
+                      boxShadow: `0 0 8px ${tier.glow}40`,
+                    }}>
+                      {d.amount}
+                    </span>
+                    <span style={{
+                      padding: "1px 5px", borderRadius: 4, flexShrink: 0,
+                      background: `${tier.color}15`, color: tier.color,
+                      fontSize: 8, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em",
+                    }}>
+                      {tier.badge}
+                    </span>
+                  </div>
+                  {d.message && (
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      "{d.message}"
+                    </div>
+                  )}
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.22)", marginTop: 2 }}>
+                    {new Date(d.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {d.channel}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.1)", fontSize: 10, color: "rgba(255,255,255,0.3)", lineHeight: 1.6 }}>
-        The QR code auto-updates when the container URL changes. No manual configuration needed.
+        The QR code auto-updates when the container URL changes. Silver ≥ KES 10 · Gold ≥ KES 500 · University ≥ KES 2,000.
       </div>
 
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes sc-spin { to { transform: rotate(360deg); } }
+        @keyframes sc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes sc-slide-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );

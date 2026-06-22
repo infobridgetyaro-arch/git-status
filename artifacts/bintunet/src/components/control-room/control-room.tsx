@@ -117,6 +117,9 @@ interface BroadcastState {
   qrScanCount: number;
   qrThankYouName: string;
   qrThankYouTs: number;
+  qrGlowIntensity: number;
+  qrBorderStyle: string;
+  qrAnimation: string;
   screenShareActive: boolean;
   screenShareMode: "pip" | "presenter" | "fullscreen";
   screenShareX: number;
@@ -151,7 +154,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode; accent: string }[] 
   { id: "bg",     label: "BG",        icon: <Image size={13} />,         accent: "#fb7185" },
   { id: "mic",    label: "Mic",       icon: <Mic size={13} />,           accent: "#10b981" },
   { id: "qr",     label: "QR",       icon: <span style={{ fontSize: 11 }}>▣</span>, accent: "#06b6d4" },
-  { id: "donate", label: "Donate",  icon: <Heart size={13} />,                       accent: "#22c55e" },
+  { id: "donate", label: "SuperChat", icon: <Heart size={13} />,                      accent: "#22c55e" },
   { id: "screen", label: "Screen",  icon: <MonitorUp size={13} />,                   accent: "#818cf8" },
   { id: "music",  label: "Music",    icon: <Music size={13} />,                       accent: "#f472b6" },
   { id: "stage",  label: "Stage",    icon: <LayoutGrid size={13} />,                  accent: "#a78bfa" },
@@ -807,6 +810,9 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
     qrScanCount: 0,
     qrThankYouName: "",
     qrThankYouTs: 0,
+    qrGlowIntensity: 60,
+    qrBorderStyle: "glow",
+    qrAnimation: "pulse",
     screenShareActive: false,
     screenShareMode: "presenter",
     screenShareX: 60,
@@ -829,7 +835,8 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
   const [payScanUrl, setPayScanUrl] = useState("");
   const [payCheckoutUrl, setPayCheckoutUrl] = useState("");
   const [payerName, setPayerName] = useState<string | null>(null);
-  const payPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const payPollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [qrLocked, setQrLocked] = useState(false);
 
   const generatePaymentQr = useCallback(async () => {
     if (!payAmount || !payStreamId) return;
@@ -2538,16 +2545,133 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                   </button>
 
                   {payStatus !== "paid" && (
-                    <PositionSliders
-                      pos={bs.qrPosition}
-                      onChange={(p) => {
-                        localUpdate({ qrPosition: p });
-                        if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
-                        qrPosDebRef.current = setTimeout(() => update({ qrSize: bs.qrSize, qrPosition: p }), 600);
-                      }}
-                      label="QR Position on Stream"
-                      accent="#06b6d4"
-                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {/* Corner presets */}
+                      <div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Quick Position</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                          {[
+                            { label: "↖ Top-Left",    pos: { x: 2, y: 4 } },
+                            { label: "↗ Top-Right",   pos: { x: 88, y: 4 } },
+                            { label: "↙ Bottom-Left", pos: { x: 2, y: 82 } },
+                            { label: "↘ Bottom-Right",pos: { x: 88, y: 82 } },
+                          ].map(preset => {
+                            const isActive = Math.abs(bs.qrPosition.x - preset.pos.x) < 3 && Math.abs(bs.qrPosition.y - preset.pos.y) < 3;
+                            return (
+                              <button
+                                key={preset.label}
+                                onClick={() => {
+                                  if (qrLocked) return;
+                                  localUpdate({ qrPosition: preset.pos });
+                                  if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
+                                  qrPosDebRef.current = setTimeout(() => update({ qrSize: bs.qrSize, qrPosition: preset.pos }), 300);
+                                }}
+                                style={{
+                                  padding: "6px 8px", borderRadius: 8, fontSize: 10, fontWeight: 700,
+                                  cursor: qrLocked ? "not-allowed" : "pointer",
+                                  border: `1px solid ${isActive ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
+                                  background: isActive ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
+                                  color: isActive ? "#67e8f9" : "rgba(255,255,255,0.4)",
+                                  transition: "all 0.18s ease",
+                                  opacity: qrLocked ? 0.45 : 1,
+                                }}
+                              >{preset.label}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Fine-tune sliders */}
+                      <div style={{ opacity: qrLocked ? 0.4 : 1, pointerEvents: qrLocked ? "none" : "auto", transition: "opacity 0.2s" }}>
+                        <PositionSliders
+                          pos={bs.qrPosition}
+                          onChange={(p) => {
+                            localUpdate({ qrPosition: p });
+                            if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
+                            qrPosDebRef.current = setTimeout(() => update({ qrSize: bs.qrSize, qrPosition: p }), 600);
+                          }}
+                          label="Fine-tune Position"
+                          accent="#06b6d4"
+                        />
+                      </div>
+
+                      {/* Lock toggle */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>🔒 Lock Position</div>
+                          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 1 }}>Prevent accidental moves</div>
+                        </div>
+                        <div onClick={() => setQrLocked(l => !l)} style={{ width: 36, height: 20, borderRadius: 999, cursor: "pointer", position: "relative", flexShrink: 0, background: qrLocked ? "#06b6d4" : "rgba(255,255,255,0.12)", transition: "background 0.2s" }}>
+                          <div style={{ position: "absolute", top: 2, left: qrLocked ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
+                        </div>
+                      </div>
+
+                      {/* Glow intensity */}
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em" }}>✨ Glow Intensity</div>
+                          <span style={{ fontSize: 10, color: "#67e8f9", fontVariantNumeric: "tabular-nums" }}>{bs.qrGlowIntensity}%</span>
+                        </div>
+                        <input
+                          type="range" min={0} max={100} step={5}
+                          value={bs.qrGlowIntensity}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            localUpdate({ qrGlowIntensity: v });
+                            if (qrPosDebRef.current) clearTimeout(qrPosDebRef.current);
+                            qrPosDebRef.current = setTimeout(() => update({ qrGlowIntensity: v }), 400);
+                          }}
+                          style={{ width: "100%", accentColor: "#06b6d4", cursor: "pointer" }}
+                        />
+                      </div>
+
+                      {/* Border style */}
+                      <div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Border Style</div>
+                        <div style={{ display: "flex", gap: 5 }}>
+                          {["glow", "solid", "dashed", "none"].map(bs2 => (
+                            <button
+                              key={bs2}
+                              onClick={() => { localUpdate({ qrBorderStyle: bs2 }); update({ qrBorderStyle: bs2 }); }}
+                              style={{
+                                flex: 1, padding: "5px 4px", borderRadius: 7, fontSize: 10, fontWeight: 700,
+                                cursor: "pointer",
+                                border: `1px solid ${bs.qrBorderStyle === bs2 ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
+                                background: bs.qrBorderStyle === bs2 ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
+                                color: bs.qrBorderStyle === bs2 ? "#67e8f9" : "rgba(255,255,255,0.4)",
+                                transition: "all 0.18s ease",
+                                textTransform: "capitalize",
+                              }}
+                            >{bs2}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Animation style */}
+                      <div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>QR Animation</div>
+                        <div style={{ display: "flex", gap: 5 }}>
+                          {[
+                            { id: "pulse",  label: "💓 Pulse"  },
+                            { id: "float",  label: "🌊 Float"  },
+                            { id: "none",   label: "⏸ Static" },
+                          ].map(anim => (
+                            <button
+                              key={anim.id}
+                              onClick={() => { localUpdate({ qrAnimation: anim.id }); update({ qrAnimation: anim.id }); }}
+                              style={{
+                                flex: 1, padding: "5px 4px", borderRadius: 7, fontSize: 10, fontWeight: 700,
+                                cursor: "pointer",
+                                border: `1px solid ${bs.qrAnimation === anim.id ? "#06b6d4" : "rgba(255,255,255,0.10)"}`,
+                                background: bs.qrAnimation === anim.id ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.04)",
+                                color: bs.qrAnimation === anim.id ? "#67e8f9" : "rgba(255,255,255,0.4)",
+                                transition: "all 0.18s ease",
+                              }}
+                            >{anim.label}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -2566,8 +2690,8 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {(
                   [
-                    { label: "\u{1F49A} Donation Alert Popup", key: "donationAlertActive" as const, hint: "Animated popup when a donation arrives" },
-                    { label: "\u{1F4C3} Donation Ticker Bar",  key: "donationTickerActive" as const, hint: "Scrolling ticker at the bottom of the stream" },
+                    { label: "⚡ SuperChat Alert Popup", key: "donationAlertActive" as const, hint: "Animated pop-up when a SuperChat arrives" },
+                    { label: "📊 SuperChat Ticker Bar",  key: "donationTickerActive" as const, hint: "Scrolling ticker showing latest supporters" },
                   ] as const
                 ).map(({ label, key, hint }) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
@@ -2606,7 +2730,7 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
               />
 
               <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(34,197,94,0.04)", border: "1px solid rgba(34,197,94,0.12)", fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.6 }}>
-                Donations are collected via the public <strong style={{ color: "#22c55e" }}>/gateway-payment</strong> page. Share the QR code from the QR tab or copy the link directly from the Donation panel.
+                SuperChats are collected via the public <strong style={{ color: "#22c55e" }}>/gateway-payment</strong> page. Share the QR code from the QR tab or copy the link directly from the SuperChat panel.
               </div>
             </div>
           )}
