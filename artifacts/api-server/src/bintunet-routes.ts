@@ -1628,7 +1628,7 @@ export async function registerBintunetRoutes(
   const gatewayUrl = getGatewayPaymentUrl();
   if (gatewayUrl && !broadcastState.qrUrl) {
     broadcastState.qrUrl   = gatewayUrl;
-    broadcastState.qrTitle = "\u{1F49A} Donate Here";
+    broadcastState.qrTitle = "SUPER CHAT";
   }
 
 

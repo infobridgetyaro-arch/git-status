@@ -2699,7 +2699,7 @@ export class OverlayRenderer {
 
     // Header text
     const labelText = (state.qrTitle && state.qrTitle.trim())
-      ? state.qrTitle.trim() : "\u2615  Buy Me a Coffee";
+      ? state.qrTitle.trim() : "SUPER CHAT";
     const labelFS = Math.max(11, Math.round(labelH * 0.33));
     ctx.fillStyle    = "#fff";
     ctx.font         = `800 ${labelFS}px sans-serif`;

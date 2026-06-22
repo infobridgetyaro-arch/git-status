@@ -2360,15 +2360,22 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
           {activeTab === "qr" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-              {/* Paystack branding header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, background: "rgba(0,122,255,0.07)", border: "1px solid rgba(0,122,255,0.18)" }}>
-                <div style={{ width: 28, height: 28, borderRadius: 8, background: "#00b8d9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <span style={{ fontSize: 14, color: "#fff" }}>₦</span>
-                </div>
+              {/* Super Chat branding header */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 12,
+                background: "linear-gradient(135deg, rgba(255,214,0,0.15) 0%, rgba(255,170,0,0.10) 100%)",
+                border: "1px solid rgba(255,214,0,0.35)",
+              }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>💛</span>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Paystack Payment QR</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Viewers scan → pay → you see their name live</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: "#ffd600", letterSpacing: "0.04em" }}>SUPER CHAT via Paystack</div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)" }}>Viewers scan QR → pay → you see their name live on stream</div>
                 </div>
+              </div>
+
+              {/* Broadcast overlay info box */}
+              <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.25)", fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 }}>
+                📺 <strong style={{ color: "rgba(255,255,255,0.75)" }}>Viewers see the QR via your broadcast overlay.</strong> In OBS, add a Browser Source pointing to your <code style={{ color: "#a5b4fc" }}>/broadcast</code> URL — the Super Chat card appears automatically when you activate it.
               </div>
 
               {payStatus === "idle" || payStatus === "generating" ? (
@@ -2390,9 +2397,9 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                     </select>
                   </div>
 
-                  {/* Payment title */}
+                  {/* Super Chat message */}
                   <div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Payment Title</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Super Chat Message</div>
                     <input
                       type="text"
                       value={payTitle}
@@ -2404,9 +2411,9 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
 
                   {/* Amount */}
                   <div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Amount (NGN)</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.07em" }}>Amount (₦)</div>
                     <div style={{ position: "relative" }}>
-                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.4)", fontSize: 13, fontWeight: 700 }}>₦</span>
+                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,214,0,0.7)", fontSize: 13, fontWeight: 900 }}>₦</span>
                       <input
                         type="number"
                         min="1"
@@ -2423,67 +2430,74 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                     onClick={generatePaymentQr}
                     disabled={!payAmount || !payStreamId || payStatus === "generating"}
                     style={{
-                      padding: "11px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                      padding: "12px 20px", borderRadius: 10, fontSize: 13, fontWeight: 900,
                       cursor: (!payAmount || !payStreamId) ? "not-allowed" : "pointer",
-                      border: "1px solid rgba(0,184,217,0.4)",
-                      background: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.04)" : "rgba(0,184,217,0.18)",
-                      color: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.3)" : "#67e8f9",
+                      border: `1px solid ${(!payAmount || !payStreamId) ? "rgba(255,255,255,0.08)" : "rgba(255,214,0,0.5)"}`,
+                      background: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.04)" : "linear-gradient(135deg, rgba(255,214,0,0.22) 0%, rgba(255,170,0,0.16) 100%)",
+                      color: (!payAmount || !payStreamId) ? "rgba(255,255,255,0.25)" : "#ffd600",
                       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                       opacity: payStatus === "generating" ? 0.6 : 1,
                       transition: "all 0.2s",
+                      letterSpacing: "0.03em",
                     }}
                   >
                     {payStatus === "generating" ? (
                       <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Generating…</>
                     ) : (
-                      <><span style={{ fontSize: 16 }}>▣</span> Generate Payment QR</>
+                      <>💛 Generate Super Chat QR</>
                     )}
                   </button>
                 </>
               ) : (
-                /* ── Active payment session ── */
+                /* ── Active Super Chat session ── */
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
                   {/* Status pill */}
                   <div style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                     padding: "10px 14px", borderRadius: 10,
-                    background: payStatus === "paid" ? "rgba(52,211,153,0.12)" : payStatus === "scanned" ? "rgba(251,191,36,0.12)" : "rgba(0,184,217,0.08)",
-                    border: `1px solid ${payStatus === "paid" ? "rgba(52,211,153,0.35)" : payStatus === "scanned" ? "rgba(251,191,36,0.35)" : "rgba(0,184,217,0.25)"}`,
+                    background: payStatus === "paid" ? "rgba(52,211,153,0.12)" : payStatus === "scanned" ? "rgba(255,214,0,0.12)" : "rgba(255,214,0,0.06)",
+                    border: `1px solid ${payStatus === "paid" ? "rgba(52,211,153,0.35)" : payStatus === "scanned" ? "rgba(255,214,0,0.5)" : "rgba(255,214,0,0.2)"}`,
                   }}>
                     <div style={{
                       width: 8, height: 8, borderRadius: "50%",
-                      background: payStatus === "paid" ? "#34d399" : payStatus === "scanned" ? "#fbbf24" : "#00b8d9",
+                      background: payStatus === "paid" ? "#34d399" : "#ffd600",
                       animation: payStatus === "paid" ? "none" : "cr-pulse 1.2s infinite",
                     }} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: payStatus === "paid" ? "#34d399" : payStatus === "scanned" ? "#fbbf24" : "#67e8f9" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: payStatus === "paid" ? "#34d399" : payStatus === "scanned" ? "#ffd600" : "#ffd600" }}>
                       {payStatus === "paid"
-                        ? `🎉 Paid — ${payerName ?? "Someone"}`
+                        ? `🎉 Super Chat received — ${payerName ?? "Someone"}`
                         : payStatus === "scanned"
-                        ? "⚡ Scanned! Awaiting payment…"
-                        : "● Waiting for scan…"}
+                        ? "⚡ Someone is scanning… awaiting payment"
+                        : "💛 Waiting for a Super Chat scan…"}
                     </span>
                   </div>
 
                   {/* QR code */}
                   {payStatus !== "paid" && payCheckoutUrl && (
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "16px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#67e8f9", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                        {payStatus === "scanned" ? "⚡ Being scanned now" : "Scan to Pay"}
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#ffd600", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                        {payStatus === "scanned" ? "⚡ Being scanned now!" : "💛 SUPER CHAT QR"}
                       </div>
-                      <div style={{ padding: 10, borderRadius: 10, background: "#fff", boxShadow: payStatus === "scanned" ? "0 0 24px rgba(251,191,36,0.4)" : "0 4px 20px rgba(0,0,0,0.3)" }}>
+                      <div style={{
+                        padding: 10, borderRadius: 12, background: "#fff",
+                        boxShadow: payStatus === "scanned" ? "0 0 32px rgba(255,214,0,0.6)" : "0 0 0 4px #ffd600, 0 4px 20px rgba(0,0,0,0.4)",
+                        transition: "box-shadow 0.3s ease",
+                      }}>
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(payCheckoutUrl)}&color=000000&bgcolor=ffffff&margin=2`}
-                          alt="Payment QR"
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(payCheckoutUrl)}&color=1a1a1a&bgcolor=ffffff&margin=2`}
+                          alt="Super Chat QR"
                           style={{ width: 150, height: 150, display: "block" }}
                         />
                       </div>
                       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
-                        <strong style={{ color: "#fff" }}>{payTitle}</strong> — <span style={{ color: "#67e8f9" }}>₦{payAmount}</span>
+                        <strong style={{ color: "#ffd600" }}>{payTitle}</strong> — <span style={{ color: "#ffaa00" }}>₦{payAmount}</span>
                       </div>
-                      <a href={payCheckoutUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#67e8f9", textDecoration: "underline", opacity: 0.7 }}>
+                      <a href={payCheckoutUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#ffd600", textDecoration: "underline", opacity: 0.7 }}>
                         Open payment page ↗
                       </a>
+
+                      {/* Show / Hide on stream toggle */}
                       <button
                         onClick={() => {
                           if (bs.qrActive) {
@@ -2493,23 +2507,26 @@ export function ControlRoom({ streams, streamStats, streamChat, streamProcStats 
                           }
                         }}
                         style={{
-                          width: "100%", padding: "8px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
-                          border: `1px solid ${bs.qrActive ? "#06b6d4" : "rgba(255,255,255,0.15)"}`,
-                          background: bs.qrActive ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.05)",
-                          color: bs.qrActive ? "#67e8f9" : "rgba(255,255,255,0.55)",
+                          width: "100%", padding: "10px", borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: "pointer",
+                          border: `1px solid ${bs.qrActive ? "#ffd600" : "rgba(255,255,255,0.15)"}`,
+                          background: bs.qrActive ? "linear-gradient(135deg, rgba(255,214,0,0.22), rgba(255,170,0,0.16))" : "rgba(255,255,255,0.05)",
+                          color: bs.qrActive ? "#ffd600" : "rgba(255,255,255,0.55)",
+                          transition: "all 0.2s",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
                         }}
                       >
-                        {bs.qrActive ? "▣ Hide from stream" : "▣ Show on stream"}
+                        {bs.qrActive ? "📺 Showing on Stream — tap to Hide" : "📺 Show Super Chat on Stream"}
                       </button>
                     </div>
                   )}
 
                   {/* Thank-you card */}
                   {payStatus === "paid" && payerName && (
-                    <div style={{ padding: "16px", borderRadius: 12, background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.25)", textAlign: "center" }}>
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>🎉</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: "#34d399" }}>Thank you, {payerName}!</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>Payment confirmed via Paystack</div>
+                    <div style={{ padding: "16px", borderRadius: 12, background: "linear-gradient(135deg, rgba(255,214,0,0.12), rgba(255,170,0,0.08))", border: "1px solid rgba(255,214,0,0.35)", textAlign: "center" }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>💛</div>
+                      <div style={{ fontSize: 15, fontWeight: 900, color: "#ffd600", letterSpacing: "0.04em" }}>SUPER CHAT RECEIVED!</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginTop: 4 }}>{payerName}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>confirmed via Paystack · ₦{payAmount}</div>
                     </div>
                   )}
 
