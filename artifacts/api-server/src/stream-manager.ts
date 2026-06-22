@@ -1360,29 +1360,18 @@ export async function startStream(streamId: string, reuseUrl = false, keepStatus
           trimmed.includes("404 Not Found") ||
           trimmed.includes("403 Forbidden")
         ) {
-          // For YouTube: 403 on HLS segments almost always means the CDN's
-          // Proof-of-Origin Token (rqh/1) check failed. Without browser cookies,
-          // every URL refresh will also 403 — don't loop, surface a clear message.
-          if (resolvedType === "youtube" && !getCookiesConfigured() && !gotFrames) {
-            sendLog(streamId, `[youtube] YouTube blocked segment access (403 Forbidden).`);
-            sendLog(streamId, `[youtube] YouTube requires browser cookies to stream from a server.`);
-            sendLog(streamId, `[youtube] Go to Settings → YouTube Cookies and upload your cookies.txt file.`);
-            sendLog(streamId, `[youtube] Use the "Get cookies.txt LOCALLY" Chrome extension to export them.`);
-            const proc = activeStreams.get(streamId);
-            if (proc?.ffmpegProcess === ffmpegProc) {
-              try { proc.ffmpegProcess?.kill("SIGKILL"); } catch {}
-            }
-            sendStatus(streamId, "error");
-            return;
-          }
+          // For YouTube: 403/404 means the CDN URL expired or was rejected.
+          // With the tv_embedded client the HLS URL has no rqh= token, so the
+          // CDN doesn't require cookies — this only fires on genuine URL expiry.
+          // Always refresh the URL and restart; never permanently kill the stream.
           urlCache.delete(streamId);
           const proc = activeStreams.get(streamId);
-          if (proc) proc.urlExpired = true;
-          sendLog(streamId, `Source URL expired — restarting immediately with a fresh URL...`);
-          // Restart NOW (don't wait for stall watchdog — that would leave YouTube
-          // black for up to 15 s while FFmpeg retries the dead URL repeatedly).
-          if (proc?.ffmpegProcess === ffmpegProc) {
-            hardKillAndRestart(streamId, 300, true /* forceNewUrl */);
+          if (proc && !proc.urlExpired) {
+            proc.urlExpired = true; // debounce — only once per FFmpeg instance
+            sendLog(streamId, `[youtube] CDN URL expired (${trimmed.includes("404") ? "404" : "403"}) — fetching fresh URL and restarting…`);
+            if (proc.ffmpegProcess === ffmpegProc) {
+              hardKillAndRestart(streamId, 300, true /* forceNewUrl */);
+            }
           }
           return;
         }
